@@ -2,6 +2,10 @@
 
 新しいものを上に足す。`SPEC.md` を変えるときは先にここに書く。
 
+## 2026-09-27 開発用に @types/node を入れる
+
+`SPEC.md` の技術に挙げたもの（TypeScript、Vite、vitest、Playwright、wrangler）のほかに、`@types/node` だけを足す。Playwrightの設定で `process.env` を読むのと、ローカルモードのサーバーをNode.jsで書くのに型が要る。版は実行環境に合わせて22系にする。
+
 ## 2026-09-27 Workerの設定値はすべてダッシュボードの Secret にする
 
 このリポジトリは公開なので、wrangler 設定に書いた vars は誰でも読める。知識庫のリポジトリ名も出したくないので、トークン以外も Secret にする。wrangler 設定には vars を書かない。

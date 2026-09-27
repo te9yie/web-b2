@@ -1,0 +1,12 @@
+// 設定値（KB_REPO、GITHUB_TOKEN など）はダッシュボードで Secret として登録する。ここには書かない。
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "web-b2",
+  "compatibility_date": "2026-09-27",
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "single-page-application"
+  },
+  // Workers Builds のプレビュー（npx wrangler preview）に必要。中身は空でよい。
+  "previews": {}
+}
