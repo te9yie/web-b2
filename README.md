@@ -7,7 +7,7 @@ Markdownファイルのリポジトリ（知識庫）をブラウザから閲覧
 - 決めたことと理由は [DECISIONS.md](DECISIONS.md)
 - 作業のルールは [AGENTS.md](AGENTS.md)
 
-まだ雛形の段階で、動くものはない。
+まだ雛形の段階で、画面にはアプリ名と今日の日付しか出ない。
 
 ## 手元で動かす
 
@@ -16,4 +16,4 @@ npm install
 KB_ROOT=fixtures npm run dev:local
 ```
 
-`fixtures/` には見本のノートが入っている。自分の知識庫を読むときは `KB_ROOT` にそのディレクトリを指定する。
+`fixtures/` には見本のノートが入っている。テストは `npm test`（単体）と `npm run e2e`（ブラウザ、初回は `npx playwright install chromium` が要る）で回す。自分の知識庫を読むときは `KB_ROOT` にそのディレクトリを指定する。
