@@ -17,7 +17,7 @@ interface Measures {
 async function load(page: import("@playwright/test").Page, reload: boolean): Promise<Measures> {
   const t = Date.now();
   if (reload) await page.reload();
-  else await page.goto("/");
+  else await page.goto("/all");
   await expect(page.locator("#status")).toHaveText(/^10000ページ（\d+件を読み直し）$/, { timeout: 600000 });
   const total = Date.now() - t;
   const entries = await page.evaluate(() =>

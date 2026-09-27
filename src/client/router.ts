@@ -34,7 +34,7 @@ export interface Router {
   replace(path: string): void;
 }
 
-// onRoute は最初と遷移のたびに呼ばれる
+// onRoute は遷移のたびに呼ばれる。最初の描画は呼ぶ側が current() で行う
 export function startRouter(onRoute: (route: Route) => void): Router {
   const current = () => parseRoute(location.pathname, location.search);
   const navigate = (path: string) => {
@@ -63,6 +63,5 @@ export function startRouter(onRoute: (route: Route) => void): Router {
     e.preventDefault();
     navigate(href);
   });
-  onRoute(current());
   return { current, navigate, replace };
 }

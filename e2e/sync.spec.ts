@@ -9,7 +9,7 @@ test("2回目の読み込みではページを取り直さない", async ({ page
     if (pathname.startsWith("/api/pages/")) reads.push(pathname);
   });
 
-  await page.goto("/");
+  await page.goto("/all");
   await expect(page.locator("#pages li")).toHaveCount(16);
   await expect(page.locator("#status")).toHaveText("16ページ（16件を読み直し）");
   expect(reads).toHaveLength(16);
