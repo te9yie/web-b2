@@ -140,6 +140,21 @@ test("/append の page がまだないページなら、その名前を見出し
   });
 });
 
+test("見出しにできない title は、確認画面で直すと保存できる", async ({ page, request }) => {
+  await withNewFiles(request, async (added) => {
+    await page.goto(`/new?title=${q("Vec<T> の使い方")}&body=${q("取り込んだ本文")}`);
+    await expect(page.locator(".capture-target")).toContainText("タイトルの「<T」");
+    await expect(page.locator("button.save")).toBeDisabled();
+    await page.locator("input.capture-title").fill("Vec の使い方");
+    await expect(page.locator(".capture-target")).toHaveText("新しいページ「Vec の使い方」を作る");
+    await save(page);
+    await expect(page).toHaveURL(new RegExp(`/p/${q("Vec の使い方")}$`));
+    const files = await added();
+    expect(files).toHaveLength(1);
+    expect(await contentOf(request, files[0])).toMatch(/\n# Vec の使い方\n\n取り込んだ本文\n$/);
+  });
+});
+
 test("確認画面で直した本文が保存される", async ({ page, request }) => {
   await withBook(request, async () => {
     await page.goto(`/append?page=${q("見本の本A")}&body=${q("元の本文")}`);

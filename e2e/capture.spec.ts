@@ -20,17 +20,26 @@ test("細工した本文は確認画面で動かず、textarea の文字とし�
   await expect(page.locator("article.capture img, article.capture script")).toHaveCount(0);
 });
 
-test("見出しになる title に HTML があれば保存させない", async ({ page }) => {
+test("見出しになる title に HTML があれば、title を直すまで保存させない", async ({ page }) => {
   const payload = `<img src=x onerror="window.__pwned=1">`;
   await page.goto(`/new?title=${q(payload)}&body=${q("メモ")}`);
-  await expect(page.locator(".capture-target")).toHaveText("タイトルに HTML らしい文字列があるので、見出しにできない");
-  await expect(page.locator("button.save")).toHaveCount(0);
+  await expect(page.locator(".capture-target")).toHaveText("タイトルの「<i」は見出しとして描くと HTML かリンクになるので、見出しにできない");
+  await expect(page.locator(".capture-status")).toHaveText("タイトルを直すと保存できる");
+  await expect(page.locator("input.capture-title")).toHaveValue(payload);
+  await expect(page.locator("button.save")).toBeDisabled();
   await expect(page.locator(".capture-warnings")).toBeEmpty();
   expect(await page.evaluate(() => (window as { __pwned?: number }).__pwned)).toBeUndefined();
 
   await page.goto(`/append?page=${q("<script>window.__pwned=2</script>")}&body=x`);
-  await expect(page.locator(".capture-target")).toHaveText("タイトルに HTML らしい文字列があるので、見出しにできない");
-  await expect(page.locator("button.save")).toHaveCount(0);
+  await expect(page.locator(".capture-target")).toContainText("見出しにできない");
+  await expect(page.locator("button.save")).toBeDisabled();
+  // 直している途中で既存のページに当たれば、その末尾への追記になる
+  await page.locator("input.capture-title").fill("見本の本A");
+  await expect(page.locator(".capture-target")).toHaveText("「見本の本A」の末尾に足す");
+  await expect(page.locator("button.save")).toBeEnabled();
+  await page.locator("input.capture-title").fill("<b>");
+  await expect(page.locator("button.save")).toBeDisabled();
+  expect(await page.evaluate(() => (window as { __pwned?: number }).__pwned)).toBeUndefined();
 });
 
 test("フォーカスを得た直後は「保存」を押せず、少し経つと押せる", async ({ page }) => {

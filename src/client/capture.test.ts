@@ -88,13 +88,31 @@ describe("planCapture: fixtures/notes", () => {
     expect(planCapture(index, appendRoute("まだない取り込み先", "x"))).toEqual({ kind: "create", name: "まだない取り込み先", settings: false });
   });
 
-  it("見出しになる title と page に HTML らしい文字列があれば保存できない。既存のページへの追記なら見出しにしないので通す", () => {
-    const html = "タイトルに HTML らしい文字列があるので、見出しにできない";
-    expect(planCapture(index, newRoute("<img src=x onerror=y>", "メモ"))).toEqual({ kind: "invalid", reason: html });
-    expect(planCapture(index, newRoute("a</b>", ""))).toEqual({ kind: "invalid", reason: html });
-    expect(planCapture(index, appendRoute("<script>x</script>", "x"))).toEqual({ kind: "invalid", reason: html });
-    expect(planCapture(index, newRoute("[x](javascript&#58;y)", "x"))).toEqual({ kind: "invalid", reason: html });
+  it("見出しになる title と page に、描くと HTML かリンクになる形があれば保存できない。何に当たったかを理由に入れる", () => {
+    const hazard = (s: string) => ({ kind: "invalid", reason: `タイトルの「${s}」は見出しとして描くと HTML かリンクになるので、見出しにできない`, heading: true });
+    expect(planCapture(index, newRoute("<img src=x onerror=y>", "メモ"))).toEqual(hazard("<i"));
+    expect(planCapture(index, newRoute("a</b>", ""))).toEqual(hazard("</"));
+    expect(planCapture(index, appendRoute("<script>x</script>", "x"))).toEqual(hazard("<s"));
+    expect(planCapture(index, newRoute("Vec<T> の使い方", "x"))).toEqual(hazard("<T"));
+    expect(planCapture(index, newRoute("[x](javascript&#58;y)", "x"))).toEqual(hazard("]("));
+    // \ のエスケープを挟んでも、リンクの書き方で止まる
+    expect(planCapture(index, newRoute("[x](javascript\\:alert(1))", "x"))).toEqual(hazard("]("));
+    // 参照の定義と参照リンクの形も止める
+    expect(planCapture(index, newRoute("[x]: javascript\\:alert(1)", "x"))).toEqual(hazard("]:"));
+    expect(planCapture(index, newRoute("[y][x]", "x"))).toEqual(hazard("]["));
+    expect(planCapture(index, newRoute("x onclick=y", "x"))).toEqual(hazard("onclick="));
+  });
+
+  it("JavaScript: を含む普通の title と、比較の < は見出しにできる", () => {
+    expect(planCapture(index, newRoute("JavaScript: The Good Parts", "x"))).toEqual({
+      kind: "create",
+      name: "JavaScript: The Good Parts",
+      settings: false,
+    });
+    expect(planCapture(index, newRoute("Rust vs JavaScript: 速さの比べ方", "x"))).toMatchObject({ kind: "create" });
     expect(planCapture(index, newRoute("a < b", "x"))).toEqual({ kind: "create", name: "a < b", settings: false });
+    expect(planCapture(index, newRoute("[PDF] 資料", "x"))).toMatchObject({ kind: "create" });
+    expect(planCapture(index, newRoute("Button only", "x"))).toMatchObject({ kind: "create" });
   });
 
   it("/new の title も [[ ]] を外す。見出しから読み直すと別の文字になる title は保存できない", () => {
@@ -102,7 +120,7 @@ describe("planCapture: fixtures/notes", () => {
     expect(planCapture(index, newRoute("[[見本の本A]]", "x"))).toMatchObject({ kind: "append", name: "2026-01-12-book-a" });
     expect(planCapture(index, newRoute("[[ ]]", "x"))).toEqual({ kind: "create", name: null, settings: false });
     const differs = "タイトルを見出しにすると別の文字として読まれるので、ページを引けない";
-    expect(planCapture(index, newRoute("Episode #", "x"))).toEqual({ kind: "invalid", reason: differs });
+    expect(planCapture(index, newRoute("Episode #", "x"))).toEqual({ kind: "invalid", reason: differs, heading: true });
     expect(planCapture(index, appendRoute("[[a|b]]x", "x"))).toMatchObject({ kind: "create" });
   });
 
@@ -138,6 +156,30 @@ describe("captureWarnings", () => {
     }
     // 戻さない名前の実体参照と、ただの「java script」の話は当たらない
     expect(captureWarnings("AT&amp;T の java と script の話: 前置き")).toEqual([]);
+  });
+
+  it("\\ でエスケープした javascript: と、参照の定義・自動リンク・href= の javascript: でも注意を出す", () => {
+    for (const body of [
+      "[x](javascript\\:alert(1))",
+      "[x]: javascript\\:alert(1)\n\n[y][x]",
+      "   [x]: <javascript:alert(1)>",
+      "[x](<javascript:alert(1)>)",
+      "<javascript:alert(1)>",
+      "<a href='javascript:alert(1)'>x</a>",
+    ]) {
+      expect(captureWarnings(body), body).toContain(html);
+    }
+  });
+
+  it("リンクの行き先でない JavaScript: には注意を出さない", () => {
+    for (const body of [
+      "JavaScript: The Good Parts を読んだ",
+      "java\nscript: 行をまたいでも",
+      "[JavaScript: The Good Parts](https://example.com/js)",
+      "[x]: https://example.com/javascript:a",
+    ]) {
+      expect(captureWarnings(body), body).toEqual([]);
+    }
   });
 
   it("文字化け、settings ページ、同じ内容が末尾にあるときに注意を出す", () => {
