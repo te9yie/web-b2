@@ -64,19 +64,31 @@ export async function showPage(kb: Kb, name: string, root: HTMLElement, seq: num
   if (h1) h1.insertAdjacentElement("afterend", dates);
   else root.querySelector("article")!.prepend(dates);
 
-  // 本文を先に見せてから、逆引き（初回は構築を待つ）と図
-  await appendRelated(kb, page.name, root, seq);
-  await drawMermaid(root, seq);
+  // 本文を先に見せてから、逆引き（初回は構築を待つ）と図。触る場所が別なので並べて進める
+  await Promise.all([appendRelated(kb, page.name, root, seq), drawMermaid(root, seq)]);
 }
 
+// 一覧の1項目。同じ title のページを見分けられるように、name を title 属性に入れる
 function pageItem(p: PageMeta): string {
-  return `<li><a href="${pageUrl(p.name)}" class="wikilink">${escapeHtml(p.title)}</a></li>`;
+  return `<li><a href="${pageUrl(p.name)}" class="wikilink" title="${escapeHtml(p.name)}">${escapeHtml(p.title)}</a></li>`;
 }
 
 // ページの末尾に「このページへのリンク」（バックリンク）と「2 hop link」を足す（SPEC.md「リンクの解決」）。
-// バックリンクはないときも見出しを出す。2 hop link はあるときだけ、リンク先ごとにまとめる
+// バックリンクはないときも見出しを出す。2 hop link はあるときだけ、リンク先ごとにまとめる。
+// 逆引きを読めなかったときは、その旨を末尾に出す（本文は出ている）
 async function appendRelated(kb: Kb, name: string, root: HTMLElement, seq: number): Promise<void> {
-  const [backlinks, hops] = await Promise.all([kb.backlinks(name), kb.twoHop(name)]);
+  let backlinks: PageMeta[];
+  let hops: Awaited<ReturnType<Kb["twoHop"]>>;
+  try {
+    [backlinks, hops] = await Promise.all([kb.backlinks(name), kb.twoHop(name)]);
+  } catch (e) {
+    if (stale(seq)) return;
+    const section = document.createElement("section");
+    section.className = "backlinks";
+    section.innerHTML = `<h2>このページへのリンク</h2><p class="note">読めなかった: ${escapeHtml(e instanceof Error ? e.message : String(e))}</p>`;
+    root.querySelector("article")?.append(section);
+    return;
+  }
   if (stale(seq)) return;
   const article = root.querySelector("article");
   if (!article) return;
