@@ -76,8 +76,10 @@ AIには権限がなく、人がやる必要があること。上から順にや
 - [x] `{{名前 引数}}` の展開（コード内は除外、未登録は残す）と、`settings` の `script.js` のブラウザでの実行、`kb` API。完了条件: `fixtures/` の `settings` に定義したマクロが表示で展開される単体テストとe2eが通る
   - マクロの関数は Promise を返してよく、本文は `kb.page(ref)` で読む（`DECISIONS.md` 2026-09-27）。見本の `embed` は `async` に書き換えた。`src/client/macro.ts`（`expand`）と `scripting.ts`（`Scripting`。`new Function` で `script.js` を実行し、`kb.macro`/`kb.command` の登録と構文エラー・実行時エラーを `error` に持つ）。`showPage` は本文を展開してから HTML にする。`/` のトップも展開してから最初のリンクを取る。
   - 展開は1回きり（戻り値の中の `{{ }}` は展開しない）。入れ子にしたいマクロは `kb.expand` を自分で呼ぶ（見本の `embed` がそう）。マクロが例外を投げたら、その場所に `（{{名前}}: 理由）` を出す。
-- [ ] スクリプトの構文エラーを `settings` ページの先頭に出す。完了条件: e2eで壊れたスクリプトを保存するとエラーが表示される
-  - `Scripting.error` と `Settings.name` で足りる。`new Function` の SyntaxError には行番号が入らない（V8）ので、名前と理由だけ出す。保存は段階5なので、e2e は `page.request.put` で settings を書き換えて reload する形になるが、e2e は `fixtures/` を複数のワーカーで共有しているので、そのテストだけ一時ディレクトリへ複製した `KB_ROOT` の別の `webServer`（か `workers: 1` の別プロジェクト）で動かす。
+- [x] スクリプトの構文エラーを `settings` ページの先頭に出す。完了条件: e2eで壊れたスクリプトを保存するとエラーが表示される
+  - `showPage` が `scripting.error` と `scripting.settingsName` を見て、settings ページの先頭に `.script-error` を出す。`new Function` の SyntaxError には行番号が入らない（V8）ので、名前と理由だけ。読み込み時の実行時エラーも同じ場所に出し、例外の前に登録されたマクロは残る。
+  - 見本の `touched` は `kb.pages` の順（控えの順。Linux では `readdir` が名前順でない）に依存しないよう、名前で並べる。
+  - ファイルを書き換える e2e は `e2e/mutating/` に置く。Playwright の `mutating` プロジェクトで、`fixtures/` を `e2e/.data` に写した別のサーバー（ポート5197）を使って順に動かす（`e2e/global-setup.ts`）。保存は段階5なので、いまは `request.put` で書き換えている。段階5で保存ができたら、エディタから保存する形に書き換える。
 
 ## 段階5 編集と保存
 

@@ -7,3 +7,4 @@ playwright-report/
 .playwright-mcp/
 .DS_Store
 perf/.data/
+e2e/.data/

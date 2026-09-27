@@ -56,8 +56,13 @@ export async function showPage(kb: Kb, scripting: Scripting, name: string, root:
   document.title = `${page.title} - web-b2`;
   // H1 は本文の中にあるので、ないときだけ name を見出しにする
   const heading = page.h1 === null ? `<h1 class="from-name">${escapeHtml(page.name)}</h1>` : "";
+  // settings ページには、script.js の構文エラー・実行時エラーを先頭に出す（SPEC.md「マクロ」）
+  const scriptError =
+    scripting.error !== null && page.name === scripting.settingsName
+      ? `<p class="script-error">script.js を実行できない: ${escapeHtml(scripting.error)}</p>`
+      : "";
   const html = renderMarkdown(body, { pagePath: page.path, exists });
-  root.innerHTML = `<article class="page">${heading}<div class="body">${html}</div></article>`;
+  root.innerHTML = `<article class="page">${scriptError}${heading}<div class="body">${html}</div></article>`;
 
   // 作成日・更新日は見出しの直後に置く。見出しがなければ本文の前
   const dates = document.createElement("p");
