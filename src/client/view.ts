@@ -113,14 +113,13 @@ async function appendRelated(kb: Kb, name: string, root: HTMLElement, seq: numbe
   article.append(hop);
 }
 
-// 一覧と検索結果（/all）。q が空なら全ページの一覧。300件で切ったときはその旨を出す
-export function showAll(kb: Kb, root: HTMLElement, note: string, q: string, result: SearchResult): void {
+// 一覧と検索結果（/all）。q が空なら全ページの一覧。300件で切ったときはその旨を出す。
+// loading は本文をまだ読めていない（タイトルだけで探している）とき
+export function showAll(kb: Kb, root: HTMLElement, note: string, q: string, result: SearchResult, loading = false): void {
   document.title = q === "" ? "web-b2" : `${q} - web-b2`;
   const items = result.pages.map(pageItem).join("");
-  const count =
-    q === ""
-      ? statusText(kb, note)
-      : `${result.total}件${result.total > result.pages.length ? `（先頭の${result.pages.length}件を表示）` : ""}`;
+  const truncated = result.total > result.pages.length ? `（先頭の${result.pages.length}件を表示）` : "";
+  const count = q === "" ? statusText(kb, note) + truncated : `${result.total}件${truncated}${loading ? "（本文を読み込み中）" : ""}`;
   root.innerHTML = `<h1>${q === "" ? "web-b2" : escapeHtml(q)}</h1><p id="status">${escapeHtml(count)}</p><ul id="pages">${items}</ul>`;
 }
 

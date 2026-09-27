@@ -52,7 +52,7 @@ async function start(): Promise<void> {
   let bodies: ReadonlyMap<string, string> | null = null;
   const showResults = (query: string, seq: number) => {
     const bodyOf = (path: string) => bodies?.get(path) ?? "";
-    showAll(kb, view, note, query, search(kb.index.pages.values(), query, bodyOf));
+    showAll(kb, view, note, query, search(kb.index.pages.values(), query, bodyOf), query !== "" && bodies === null);
     if (query !== "" && bodies === null) {
       void kb.bodies().then(
         (map) => {
@@ -81,16 +81,24 @@ async function start(): Promise<void> {
         view.innerHTML = `<h1>web-b2</h1><p>このURLはまだ扱えない: ${escapeHtml(route.kind === "unknown" ? route.path : route.kind)}</p>`;
     }
   };
+  // 戻る・進むのときは、欄にフォーカスがあっても URL に合わせる（render は入力中の欄を触らない）
+  window.addEventListener("popstate", () => q.blur());
   const router = startRouter(render);
 
   // 検索欄。入力に合わせて /all?q= に移って結果を差し替える。IME の変換中は何もしない。
-  // /all にいるあいだは履歴を積まない（replace）
+  // /all にいるあいだは履歴を積まない（replace）。
+  // 全文の走査は1万ページで200ms（docs/perf.md）かかるので、打鍵ごとではなく次のフレームで最後の値だけ検索する
   let composing = false;
+  let scheduled = false;
   const runSearch = () => {
-    const route = router.current();
-    const url = allUrl(q.value.trim());
-    if (route.kind === "all") router.replace(url);
-    else router.navigate(url);
+    if (scheduled) return;
+    scheduled = true;
+    requestAnimationFrame(() => {
+      scheduled = false;
+      const url = allUrl(q.value.trim());
+      if (router.current().kind === "all") router.replace(url);
+      else router.navigate(url);
+    });
   };
   q.addEventListener("compositionstart", () => {
     composing = true;
@@ -122,8 +130,9 @@ async function start(): Promise<void> {
   performance.measure("sync", "sync:start");
   // 何か変わったときだけ表示を作り直す（変わっていないのに作り直すと、図が描き直されて選択が消える。段階5では編集中の内容も）。
   // 変わっていなければ一覧の状態の文だけ差し替える
-  if (changed) render(router.current());
-  else if (router.current().kind !== "page" && q.value.trim() === "") {
+  const route = router.current();
+  if (changed) render(route);
+  else if (route.kind === "home" || (route.kind === "all" && route.q === "")) {
     const status = document.querySelector("#status");
     if (status) status.textContent = statusText(kb, note);
   }

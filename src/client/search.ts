@@ -30,12 +30,11 @@ export function search(pages: Iterable<PageMeta>, query: string, bodyOf: (path: 
     }
     const title = page.title.toLowerCase();
     let inTitle = true;
-    let inBody: boolean | null = null;
     let ok = true;
     for (const w of words) {
+      // タイトル（H1 か name）にあれば本文を見ない。H1 は本文の中にあり、name はページそのものを指す
       if (title.includes(w)) continue;
       inTitle = false;
-      inBody ??= true;
       if (!bodyOf(page.path).includes(w)) {
         ok = false;
         break;

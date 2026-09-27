@@ -3,6 +3,7 @@
 import { describe, expect, it } from "vitest";
 import { KbIndex } from "../src/client/kb-index";
 import { type Page, parsePage } from "../src/client/page";
+import { search } from "../src/client/search";
 import { synthesize, totalBytes } from "./synth";
 
 function ms(n: number): string {
@@ -21,20 +22,6 @@ function bench(label: string, runs: number, fn: () => void): number {
   const median = sorted[Math.floor(sorted.length / 2)];
   console.log(`${label}: 初回 ${ms(times[0])}, 中央値 ${ms(median)}, 最小 ${ms(sorted[0])}（${runs}回）`);
   return median;
-}
-
-// 段階3の検索の目安。空白区切りの語をすべて含む（大文字小文字を区別しない）ページを、title に全語を含むもの→ updated 順で並べ、300件で切る
-function naiveSearch(pages: Page[], query: string): Page[] {
-  const words = query.toLowerCase().split(/\s+/).filter((w) => w !== "");
-  const hits: { page: Page; inTitle: boolean }[] = [];
-  for (const page of pages) {
-    const title = page.title.toLowerCase();
-    const body = page.body.toLowerCase();
-    if (!words.every((w) => title.includes(w) || body.includes(w))) continue;
-    hits.push({ page, inTitle: words.every((w) => title.includes(w)) });
-  }
-  hits.sort((a, b) => Number(b.inTitle) - Number(a.inTitle) || (b.page.updated ?? "").localeCompare(a.page.updated ?? ""));
-  return hits.slice(0, 300).map((h) => h.page);
 }
 
 describe("1万ページの合成データ", () => {
@@ -78,20 +65,17 @@ describe("1万ページの合成データ", () => {
     console.log(`バックリンクが最も多いまだないページ: ${heavy[1]}件`);
     bench(`backlinks（最多の ${heavy[1]}件）`, 20, () => index.backlinks(heavy[0]));
 
+    // 検索はアプリと同じ search() で測る。本文は Kb.bodies() と同じく小文字にしたものを path で引く
     const all = [...index.pages.values()];
+    const lowered = new Map(all.map((p) => [p.path, p.body.toLowerCase()]));
+    const bodyOf = (path: string) => lowered.get(path) ?? "";
     const queries = [pages[123].title.slice(0, 2), `${pages[456].title.slice(0, 2)} ${pages[789].title.slice(0, 2)}`, "zzz"];
     for (const q of queries) {
       let hits = 0;
-      bench(`素朴な検索「${q}」`, 5, () => {
-        hits = naiveSearch(all, q).length;
+      bench(`検索「${q}」`, 5, () => {
+        hits = search(all, q, bodyOf).total;
       });
       console.log(`  → ${hits}件`);
-    }
-
-    // 小文字にした本文を持っておけば、検索のたびに toLowerCase しなくてよい。その分の目安
-    const lowered = all.map((p) => ({ ...p, title: p.title.toLowerCase(), body: p.body.toLowerCase() }));
-    for (const q of queries) {
-      bench(`小文字化済みの本文での検索「${q}」`, 5, () => naiveSearch(lowered, q));
     }
 
     const mem = process.memoryUsage();

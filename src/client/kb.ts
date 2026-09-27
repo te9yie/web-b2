@@ -31,6 +31,8 @@ export class Kb {
   // 検索用の本文。bodies() で読むまでは null
   private bodyMap: Map<string, string> | null = null;
   private bodiesPromise: Promise<ReadonlyMap<string, string>> | null = null;
+  // bodies() で読んでいるあいだに変わった本文。null は消えたページ
+  private pendingBodies: Map<string, string | null> | null = null;
 
   private constructor(
     private readonly store: FileStore,
@@ -130,11 +132,11 @@ export class Kb {
     const meta = toMeta(page);
     this.byPath.set(file.path, meta);
     this.place(meta);
-    this.bodyMap?.set(file.path, page.body.toLowerCase());
+    this.noteBody(file.path, page.body.toLowerCase());
   }
 
   private drop(path: string): void {
-    this.bodyMap?.delete(path);
+    this.noteBody(path, null);
     const old = this.byPath.get(path);
     if (!old) return;
     this.byPath.delete(path);
@@ -204,16 +206,33 @@ export class Kb {
   // （1万ページで0.9秒。DECISIONS.md 2026-09-27「起動時は解析結果だけを読む」）。失敗したら次で試し直す
   bodies(): Promise<ReadonlyMap<string, string>> {
     this.bodiesPromise ??= (async () => {
-      const files = await this.store.all();
-      const map = new Map<string, string>();
-      for (const f of files) map.set(f.path, splitFrontMatter(f.content).body.toLowerCase());
-      this.bodyMap = map;
-      return map;
+      // 読んでいるあいだの apply/drop は pendingBodies に控え、読み終えてから上書きする（控えの実装の順序に頼らない）
+      this.pendingBodies = new Map();
+      try {
+        const files = await this.store.all();
+        const map = new Map<string, string>();
+        for (const f of files) map.set(f.path, splitFrontMatter(f.content).body.toLowerCase());
+        for (const [path, body] of this.pendingBodies) {
+          if (body === null) map.delete(path);
+          else map.set(path, body);
+        }
+        this.bodyMap = map;
+        return map;
+      } finally {
+        this.pendingBodies = null;
+      }
     })().catch((e) => {
       this.bodiesPromise = null;
       throw e;
     });
     return this.bodiesPromise;
+  }
+
+  private noteBody(path: string, body: string | null): void {
+    if (this.pendingBodies) this.pendingBodies.set(path, body);
+    if (!this.bodyMap) return;
+    if (body === null) this.bodyMap.delete(path);
+    else this.bodyMap.set(path, body);
   }
 
   // 本文つきのページ。ref は name でも title でも [[ ]] 付きでもよい。表示のときに、そのページの分だけ控えから読む
