@@ -20,5 +20,9 @@
     "vite": "^8.3.1",
     "vitest": "^5.0.2",
     "wrangler": "^4.141.0"
+  },
+  "dependencies": {
+    "marked": "^18.0.14",
+    "mermaid": "^12.0.0"
   }
 }
