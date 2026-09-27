@@ -243,7 +243,13 @@ async function start(): Promise<void> {
 
   await nextFrame();
   performance.mark("reverse:start");
-  await kb.prepareBacklinks();
+  try {
+    await kb.prepareBacklinks();
+  } catch (e) {
+    // ここで止まると差分を取らないので、取り込みの確認画面が「差分を確認中」のまま待たないよう、失敗を知らせる
+    markSyncFailed(`逆引きを読めない: ${message(e)}`);
+    throw e;
+  }
   performance.measure("reverse", "reverse:start");
 
   // 差分を取れないとき（オフライン、Accessのセッション切れ）は控えの索引のまま使い、その旨を出す

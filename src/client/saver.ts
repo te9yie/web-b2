@@ -88,11 +88,12 @@ export class Saver {
     );
   }
 
-  // その path の下書きだけをすぐに保存する（/new と /append の「保存」）。ほかの下書きは送らず、タイマーにも触らない。
-  // onResult は呼ばない（結果は呼ぶ側が出す）
+  // その path の下書きだけをすぐに保存する（/new と /append の「保存」）。ほかの下書きは送らない。
+  // saveNow 自身はタイマーを張り直さない（直前の updateDraft で張られた分は、送り終えていれば何もしない）。
+  // onResult は呼ばない（結果は呼ぶ側が出す）。下書きがなければ書けていないので失敗として返す
   saveNow(path: string): Promise<SaveResult> {
     const draft = getDraft(path);
-    if (!draft) return Promise.resolve({ path, ok: true });
+    if (!draft) return Promise.resolve({ path, ok: false, error: "下書きがない" });
     return this.save(path, draft, {});
   }
 

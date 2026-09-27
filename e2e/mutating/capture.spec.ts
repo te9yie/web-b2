@@ -96,7 +96,7 @@ test("/new の title が既存のページなら、新しく作らずに末尾�
   await withBook(request, async (original) => {
     const before = await listPaths(request);
     await page.goto(`/new?title=${q("見本の本A")}&body=${q("二度目の取り込み")}`);
-    await expect(page.locator(".capture-target")).toContainText("同じ名前のページがあるので、その末尾に足す");
+    await expect(page.locator(".capture-target")).toHaveText("同じ名前のページがある。「見本の本A」の末尾に足す");
     await expect(page.locator("article.capture h1")).toHaveText("追記");
     await save(page);
     await expect(page).toHaveURL(/\/p\/2026-01-12-book-a$/);

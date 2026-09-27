@@ -88,6 +88,24 @@ describe("planCapture: fixtures/notes", () => {
     expect(planCapture(index, appendRoute("まだない取り込み先", "x"))).toEqual({ kind: "create", name: "まだない取り込み先", settings: false });
   });
 
+  it("見出しになる title と page に HTML らしい文字列があれば保存できない。既存のページへの追記なら見出しにしないので通す", () => {
+    const html = "タイトルに HTML らしい文字列があるので、見出しにできない";
+    expect(planCapture(index, newRoute("<img src=x onerror=y>", "メモ"))).toEqual({ kind: "invalid", reason: html });
+    expect(planCapture(index, newRoute("a</b>", ""))).toEqual({ kind: "invalid", reason: html });
+    expect(planCapture(index, appendRoute("<script>x</script>", "x"))).toEqual({ kind: "invalid", reason: html });
+    expect(planCapture(index, newRoute("[x](javascript&#58;y)", "x"))).toEqual({ kind: "invalid", reason: html });
+    expect(planCapture(index, newRoute("a < b", "x"))).toEqual({ kind: "create", name: "a < b", settings: false });
+  });
+
+  it("/new の title も [[ ]] を外す。見出しから読み直すと別の文字になる title は保存できない", () => {
+    expect(planCapture(index, newRoute("[[メモ]]", "x"))).toEqual({ kind: "create", name: "メモ", settings: false });
+    expect(planCapture(index, newRoute("[[見本の本A]]", "x"))).toMatchObject({ kind: "append", name: "2026-01-12-book-a" });
+    expect(planCapture(index, newRoute("[[ ]]", "x"))).toEqual({ kind: "create", name: null, settings: false });
+    const differs = "タイトルを見出しにすると別の文字として読まれるので、ページを引けない";
+    expect(planCapture(index, newRoute("Episode #", "x"))).toEqual({ kind: "invalid", reason: differs });
+    expect(planCapture(index, appendRoute("[[a|b]]x", "x"))).toMatchObject({ kind: "create" });
+  });
+
   it("行き先が settings ページなら印を付ける（name でも title でも）", () => {
     expect(planCapture(index, appendRoute("settings", "x"))).toMatchObject({ kind: "append", settings: true });
     expect(planCapture(index, appendRoute("2026-01-05-settings", "x"))).toMatchObject({ kind: "append", settings: true });
@@ -104,6 +122,22 @@ describe("captureWarnings", () => {
       expect(captureWarnings(body)).toContain(html);
     }
     for (const body of ["a < b", "1<2", "once upon a time"]) expect(captureWarnings(body)).toEqual([]);
+  });
+
+  it("実体参照や空白を挟んで書いた javascript: でも注意を出す", () => {
+    for (const body of [
+      "[x](javascript&#58;alert(1))",
+      "[x](JaVaScRiPt&colon;alert(1))",
+      "[x](&#x6A;avascript&#x3A;alert(1))",
+      "[x](&#106avascript:alert(1))",
+      "[x](java&Tab;script:alert(1))",
+      "[x](java\tscript:alert(1))",
+      "[x](java&#0010;script:alert(1))",
+    ]) {
+      expect(captureWarnings(body), body).toContain(html);
+    }
+    // 戻さない名前の実体参照と、ただの「java script」の話は当たらない
+    expect(captureWarnings("AT&amp;T の java と script の話: 前置き")).toEqual([]);
   });
 
   it("文字化け、settings ページ、同じ内容が末尾にあるときに注意を出す", () => {

@@ -7,14 +7,18 @@
 import { clearDraft, draftForNewPage, getDraft, isDirty, normalizeEol, openDraft, openNewDraft, updateDraft } from "./drafts";
 import type { Kb } from "./kb";
 import { type KbIndex, refName } from "./kb-index";
-import { type PageMeta, nameOf } from "./page";
+import { type PageMeta, nameOf, parsePage } from "./page";
 import { pageUrl } from "./render";
 import type { Route, Router } from "./router";
 import type { Saver } from "./saver";
 import { SETTINGS_NAME } from "./settings";
-import { allocateNewPageFile, stale, whenSynced } from "./view";
+import { allocateNewPageFile, newPageFile, stale, whenSynced } from "./view";
 
 export type CaptureRoute = Extract<Route, { kind: "new" | "append" }>;
+
+// 「保存」を押せるようにするまでの待ち。ページがフォーカスを得てから（見える状態になってから）この時間は押させない
+// （DECISIONS.md 2026-09-28「取り込みの「保存」は、ページがフォーカスを得てから500ms経つまで押せない」）
+export const ARM_DELAY = 500;
 
 // title の空白（改行を含む）を1つの半角空白にまとめて前後を落とす。空なら null
 export function captureTitle(raw: string): string | null {
@@ -46,6 +50,39 @@ export function endsWithBody(content: string, body: string): boolean {
   return b !== "" && content.trimEnd().endsWith(b);
 }
 
+// URL の中で使われうる名前つきの実体参照。ほかの名前は戻さない
+const NAMED_ENTITIES: Record<string, string> = { colon: ":", tab: "\t", newline: "\n", nbsp: " ", lpar: "(", rpar: ")", sol: "/" };
+
+function fromCodePoint(n: number): string {
+  return n >= 0 && n <= 0x10ffff ? String.fromCodePoint(n) : "";
+}
+
+// 実体参照を文字に戻す。数値のものは ; を省いてもブラウザが戻すので、; はなくてもよい
+function decodeEntities(s: string): string {
+  return s
+    .replace(/&#x([0-9a-f]+);?/gi, (_, hex: string) => fromCodePoint(parseInt(hex, 16)))
+    .replace(/&#(\d+);?/g, (_, dec: string) => fromCodePoint(parseInt(dec, 10)))
+    .replace(/&([a-z]+);/gi, (m, name: string) => NAMED_ENTITIES[name.toLowerCase()] ?? m);
+}
+
+// HTML らしい文字列か。`a < b` のような比較は当たらない。
+// javascript: は、実体参照（`javascript&#58;`、`&colon;`）を戻し、空白と制御文字を除いてから探す（ブラウザは URL をそう読む）
+export function looksLikeHtml(s: string): boolean {
+  if (/<[a-z!/]/i.test(s) || /\son[a-z]+\s*=/i.test(s)) return true;
+  return /javascript:/i.test(decodeEntities(s).replace(/[\s\u0000-\u001f\u007f]/g, ""));
+}
+
+// 新しいページの見出し（# name）にできない理由。なければ null。
+// HTML らしい文字列は見出しとして描くとそのまま動く。見出しから読み直した title が name と違うと、保存したページを name で引けず、
+// 同じ title の二度目の取り込みで同じ見出しのページがもう一つできる
+export function headingProblem(name: string, content = newPageFile(name, "", new Date()).content): string | null {
+  if (looksLikeHtml(name)) return "タイトルに HTML らしい文字列があるので、見出しにできない";
+  if (refName(name) !== name || parsePage({ path: "capture.md", content }).title !== name) {
+    return "タイトルを見出しにすると別の文字として読まれるので、ページを引けない";
+  }
+  return null;
+}
+
 // 行き先。索引だけを見て決める（差分の同期の後に呼ぶ）。settings は行き先が settings ページか
 export type CapturePlan =
   // 新しいページを作る。name が null なら title なし（時刻のファイル名、見出しなし）
@@ -55,16 +92,24 @@ export type CapturePlan =
   // 保存できない。name があれば、そのページへのリンクを添える
   | { kind: "invalid"; reason: string; name?: string };
 
+// name を見出しにして新しいページを作る。見出しにできなければ invalid
+function createPlan(name: string): CapturePlan {
+  const problem = headingProblem(name);
+  if (problem !== null) return { kind: "invalid", reason: problem };
+  return { kind: "create", name, settings: name === SETTINGS_NAME };
+}
+
 export function planCapture(index: KbIndex, route: CaptureRoute): CapturePlan {
   const body = normalizeBody(route.body);
   const settingsName = index.resolve(SETTINGS_NAME)?.[0] ?? null;
   if (route.kind === "new") {
-    const title = captureTitle(route.title);
-    if (title === null) {
+    // /append の page と同じく [[ ]] を外す（resolve も外してから引くので、外さないと保存したページを引けない）
+    const title = refName(captureTitle(route.title) ?? "");
+    if (title === "") {
       return isBlank(body) ? { kind: "invalid", reason: "title も body もない" } : { kind: "create", name: null, settings: false };
     }
     const found = index.resolve(title);
-    if (!found) return { kind: "create", name: title, settings: title === SETTINGS_NAME };
+    if (!found) return createPlan(title);
     // 同じ名前のページを新しく作らず、そのページへの追記にする（DECISIONS.md 2026-09-28）
     if (isBlank(body)) return { kind: "invalid", reason: "同じ名前のページがある", name: found[0] };
     return { kind: "append", name: found[0], meta: found[1], settings: found[0] === settingsName };
@@ -73,17 +118,14 @@ export function planCapture(index: KbIndex, route: CaptureRoute): CapturePlan {
   if (page === "") return { kind: "invalid", reason: "page がない" };
   if (isBlank(body)) return { kind: "invalid", reason: "body がない", name: index.resolve(page)?.[0] };
   const found = index.resolve(page);
-  if (!found) return { kind: "create", name: page, settings: page === SETTINGS_NAME };
+  if (!found) return createPlan(page);
   return { kind: "append", name: found[0], meta: found[1], settings: found[0] === settingsName };
 }
-
-// 本文の見た目が HTML か。`a < b` のような比較は当たらない
-const HTML_LIKE = [/<[a-z!/]/i, /javascript:/i, /\son[a-z]+\s*=/i];
 
 // 注意の文。保存は止めない。target は行き先が決まってから渡す（content は追記するときの既存の中身）
 export function captureWarnings(body: string, target: { settings: boolean; content: string | null } | null = null): string[] {
   const warnings: string[] = [];
-  if (HTML_LIKE.some((re) => re.test(body))) warnings.push("本文に HTML が含まれている。保存すると、表示のときにそのまま動く（スクリプトも）");
+  if (looksLikeHtml(body)) warnings.push("本文に HTML が含まれている。保存すると、表示のときにそのまま動く（スクリプトも）");
   if (body.includes("�")) warnings.push("文字化けした文字（�）が含まれている。ブックマークレットのエンコードを確かめる");
   if (target?.settings) warnings.push("settings ページに書く。script.js や style.css のコードブロックを含むと、次の表示から動く");
   if (target?.content != null && endsWithBody(target.content, body)) warnings.push("同じ内容がすでに末尾にある");
@@ -129,7 +171,8 @@ export async function showCapture(deps: CaptureDeps, route: CaptureRoute, root: 
   const tailEl = root.querySelector<HTMLElement>(".capture-tail")!;
   const statusEl = root.querySelector<HTMLElement>(".capture-status")!;
   const saveButton = root.querySelector<HTMLButtonElement>("button.save")!;
-  root.querySelector("button.cancel")!.addEventListener("click", () => router.replace("/"));
+  const cancelButton = root.querySelector<HTMLButtonElement>("button.cancel")!;
+  cancelButton.addEventListener("click", () => router.replace("/"));
   textarea.value = normalizeBody(route.body);
 
   // 注意は本文を直すたびに出し直す。行き先が決まるまでは本文だけで見る
@@ -145,9 +188,50 @@ export async function showCapture(deps: CaptureDeps, route: CaptureRoute, root: 
   };
   textarea.addEventListener("input", showWarnings);
   showWarnings();
+
+  // 「保存」を押せるのは、行き先が決まり（ready）、保存中でなく、ページがフォーカスを持って見えていて、
+  // 最後にフォーカスを得てから（見える状態になってから）ARM_DELAY 経ったとき。
+  // 別のサイトが二度押しを促し、1回目で隠しておいたこの窓を前に出して2回目を「保存」に当てさせる手口を防ぐ。
+  // 保存中は「やめる」も押させない（押すと、失敗した下書きが戻されないまま後のページ移動で送られる）
+  let ready = false;
+  let saving = false;
+  let armedAt = performance.now();
+  let armTimer: ReturnType<typeof setTimeout> | null = null;
+  const canSave = () =>
+    ready && !saving && document.hasFocus() && document.visibilityState === "visible" && performance.now() - armedAt >= ARM_DELAY;
+  const refresh = () => {
+    if (armTimer !== null) clearTimeout(armTimer);
+    armTimer = null;
+    if (stale(seq)) {
+      detach();
+      return;
+    }
+    cancelButton.disabled = saving;
+    saveButton.disabled = !canSave();
+    const wait = ARM_DELAY - (performance.now() - armedAt);
+    if (saveButton.disabled && saveButton.isConnected && ready && !saving && wait > 0) armTimer = setTimeout(refresh, wait);
+  };
+  const rearm = () => {
+    armedAt = performance.now();
+    refresh();
+  };
+  const onVisibility = () => (document.visibilityState === "visible" ? rearm() : refresh());
+  const detach = () => {
+    window.removeEventListener("focus", rearm);
+    window.removeEventListener("blur", refresh);
+    document.removeEventListener("visibilitychange", onVisibility);
+  };
+  window.addEventListener("focus", rearm);
+  window.addEventListener("blur", refresh);
+  document.addEventListener("visibilitychange", onVisibility);
+
   // 保存できないと決まったら「保存」を消し、理由を出す（「やめる」だけ残す）
   const stop = (...parts: (string | Node)[]) => {
+    ready = false;
+    saving = false;
     saveButton.remove();
+    detach();
+    cancelButton.disabled = false;
     statusEl.replaceChildren(...parts);
   };
 
@@ -160,7 +244,10 @@ export async function showCapture(deps: CaptureDeps, route: CaptureRoute, root: 
   // 索引と控えが最新になってから行き先を決める（古いと既存のページを「まだない」と判断し、追記は古い sha で送る）
   statusEl.textContent = "差分を確認中。終わると保存できる";
   const synced = await whenSynced();
-  if (stale(seq)) return;
+  if (stale(seq)) {
+    detach();
+    return;
+  }
   if (!synced.ok) {
     stop(`差分を取れないので保存できない: ${synced.error}。再読み込みで試し直す`);
     return;
@@ -178,19 +265,17 @@ export async function showCapture(deps: CaptureDeps, route: CaptureRoute, root: 
     target = { settings: plan.settings, content: null };
   } else {
     setHeading(true);
-    targetEl.replaceChildren(
-      route.kind === "new" ? "同じ名前のページがあるので、その末尾に足す: " : "",
-      "「",
-      pageLink(plan.name, plan.meta.title),
-      "」の末尾に足す",
-    );
+    targetEl.replaceChildren(route.kind === "new" ? "同じ名前のページがある。" : "", "「", pageLink(plan.name, plan.meta.title), "」の末尾に足す");
     const draft = getDraft(plan.meta.path);
     if (draft?.conflict) {
       stop("このページは競合を解決していない。先にページで解決する: ", pageLink(plan.name, plan.meta.title));
       return;
     }
     const raw = draft?.content ?? (await kb.content(plan.meta.path))?.content;
-    if (stale(seq)) return;
+    if (stale(seq)) {
+      detach();
+      return;
+    }
     if (raw === undefined) {
       stop("ページを読めない");
       return;
@@ -203,20 +288,24 @@ export async function showCapture(deps: CaptureDeps, route: CaptureRoute, root: 
   }
   showWarnings();
   statusEl.textContent = "";
-  saveButton.disabled = false;
+  ready = true;
+  refresh();
 
   const save = async () => {
+    if (!canSave()) return;
     const body = normalizeBody(textarea.value);
     // 見出しだけの新しいページ（title のある /new）のほかは、本文がなければ書くものがない
     if (isBlank(body) && (plan.kind === "append" || plan.name === null)) {
       statusEl.textContent = "本文が空なので保存しない";
       return;
     }
-    saveButton.disabled = true;
+    saving = true;
+    refresh();
     statusEl.textContent = "保存中";
     const fail = (reason: string) => {
+      saving = false;
+      refresh();
       statusEl.textContent = `保存できない: ${reason}`;
-      saveButton.disabled = false;
     };
 
     let path: string;
@@ -236,8 +325,15 @@ export async function showCapture(deps: CaptureDeps, route: CaptureRoute, root: 
       if (stale(seq)) return;
       const file = allocateNewPageFile(kb, plan.name, dir, new Date());
       const key = plan.name ?? nameOf(file.path);
+      const content = appendBody(file.content, body);
+      // 書く中身から読み直した title が行き先の鍵と同じでなければ、保存したページを鍵で引けない
+      const problem = plan.name === null ? null : headingProblem(plan.name, content);
+      if (problem !== null) {
+        stop(problem);
+        return;
+      }
       // 基準を "" にして最初から変わっている下書きにする（見出しだけでも保存される）
-      openNewDraft(key, file.path, "", appendBody(file.content, body));
+      openNewDraft(key, file.path, "", content);
       path = file.path;
       url = pageUrl(key);
       restore = () => clearDraft(path);
@@ -264,7 +360,8 @@ export async function showCapture(deps: CaptureDeps, route: CaptureRoute, root: 
     }
 
     const result = await saver.saveNow(path);
-    // 保存中に別のページへ移ったら、以後は普通の下書きと同じ扱い（失敗してもページ移動の保存で送り直す）
+    // 保存中は「やめる」を押せないが、ヘッダーのリンクなどで別のページへ移ることはできる。
+    // そのときは、以後は普通の下書きと同じ扱い（失敗してもページ移動の保存で送り直す）
     if (stale(seq)) return;
     // 競合なら、そのページの先頭に競合の表示が出る
     if (result.ok || result.conflict !== undefined) {

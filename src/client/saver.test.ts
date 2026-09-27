@@ -282,6 +282,12 @@ describe("Saver.saveNow（/new と /append の保存）", () => {
     expect(source.writes[0]).toMatchObject({ path: OTHER, sha: null, message: "web: 取り込み" });
   });
 
+  it("下書きがなければ何も送らず、失敗として返す", async () => {
+    const { source, saver } = await setup();
+    expect(await saver.saveNow("notes/none.md")).toEqual({ path: "notes/none.md", ok: false, error: "下書きがない" });
+    expect(source.writes).toEqual([]);
+  });
+
   it("409 なら conflict を返し、下書きに相手の内容を付ける", async () => {
     const { source, saver, results } = await setup();
     source.files.set(PATH, { path: PATH, sha: "shaX", content: "相手\n" });
