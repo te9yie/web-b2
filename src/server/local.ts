@@ -94,7 +94,7 @@ export function createLocalApi({ root, dir }: LocalOptions): (req: Request) => P
       );
     }
     pages.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
-    return json({ pages });
+    return json({ pages, dir: dirSegments.join("/") });
   }
 
   async function getPage(segments: string[]): Promise<Response> {

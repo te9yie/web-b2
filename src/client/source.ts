@@ -10,6 +10,8 @@ export interface WriteOptions {
 
 export interface Source {
   list(): Promise<{ path: string; sha: string }[]>;
+  // ページを置くディレクトリ（KB_DIR）。新しいページのパスを組み立てるのに使う
+  dir(): Promise<string>;
   // 一覧に出たあとで消えたファイルは NotFoundError を投げる。取り込みはそれを「消えた」として扱う
   read(path: string): Promise<StoredFile>;
   // 書き込み。sha は編集を始めたときの値で、新しいページは null。message はコミットメッセージ。新しい sha を返す
@@ -43,12 +45,21 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 }
 
 export class ApiSource implements Source {
+  // 一覧で受け取った dir。新しいページの作成で使う
+  private knownDir: string | null = null;
+
   constructor(private readonly fetchFn: typeof fetch = (input, init) => fetch(input, init)) {}
+
+  async dir(): Promise<string> {
+    if (this.knownDir === null) await this.list();
+    return this.knownDir ?? "";
+  }
 
   async list(): Promise<{ path: string; sha: string }[]> {
     const body = await readJson(await this.fetchFn("/api/pages"));
     const pages = isRecord(body) ? body.pages : undefined;
     if (!Array.isArray(pages)) throw new Error("APIの応答が異常: pages がない");
+    if (isRecord(body) && typeof body.dir === "string") this.knownDir = body.dir;
     return pages.map((p: unknown) => {
       if (!isRecord(p) || typeof p.path !== "string" || typeof p.sha !== "string") {
         throw new Error("APIの応答が異常: 一覧の項目に path と sha がない");

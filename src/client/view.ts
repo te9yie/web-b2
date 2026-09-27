@@ -1,6 +1,7 @@
 // 画面の描画。ページ（/p/<name>）と、一覧・検索結果（/all）
 import type { Kb } from "./kb";
-import { getDraft, isDirty, openDraft, updateDraft } from "./drafts";
+import { today } from "./date";
+import { draftForNewPage, getDraft, isDirty, openDraft, openNewDraft, updateDraft } from "./drafts";
 import { type Editor, createEditor } from "./editor";
 import { type Page, type PageMeta, parsePage } from "./page";
 import { escapeHtml, pageUrl, renderMarkdown } from "./render";
@@ -42,8 +43,10 @@ async function drawMermaid(root: HTMLElement, seq: number): Promise<void> {
 let editor: Editor | null = null;
 let editingPath: string | null = null;
 
+// エディタを開き始めてから閉じるまで。開き始め（動的 import の待ち）のあいだも含める。
+// 差分の同期後の描き直しはこのあいだ行わない（開きかけのエディタが捨てられないように）
 export function isEditing(): boolean {
-  return editor !== null;
+  return editor !== null || editingPath !== null;
 }
 
 // エディタで開いているページの path。その下書きは片付けてはいけない
@@ -60,19 +63,60 @@ export function leavePage(): void {
 
 // ページの表示。本文はマクロを展開してから HTML にする（ファイルは書いたまま）。
 // 下書きがあれば、ファイルの中身の代わりに下書きを解析して表示する（sha は基準のもの）
+// 新しいページを置くディレクトリ（KB_DIR）。main.ts が取り込み元から渡す
+let pageDir: () => Promise<string> = async () => "";
+export function setPageDir(provider: () => Promise<string>): void {
+  pageDir = provider;
+}
+
+// 起動後の差分の同期が一度済んだか。済むまでは索引が古い（初回は空）ので、「まだないページ」に「編集」を出さない
+// （既存のページを新しいページとして作ってしまわないように）
+let synced = false;
+export function markSynced(): void {
+  synced = true;
+}
+
+function timestampName(now: Date): string {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())}-${p(now.getHours())}${p(now.getMinutes())}${p(now.getSeconds())}`;
+}
+
+// まだないページ name から書き始める新しいページの path と初期の中身（SPEC.md「新しいページ」）。
+// name が日付ならファイル名も日付、それ以外は作成時刻。1行目は # name
+export function newPageFile(name: string, dir: string, now: Date): { path: string; content: string } {
+  const date = today(now);
+  const file = /^\d{4}-\d{2}-\d{2}$/.test(name) ? name : timestampName(now);
+  const path = dir === "" ? `${file}.md` : `${dir}/${file}.md`;
+  return { path, content: `---\ncreated: ${date}\nupdated: ${date}\n---\n\n# ${name}\n\n` };
+}
+
 export async function showPage(kb: Kb, scripting: Scripting, name: string, root: HTMLElement, seq: number): Promise<void> {
   leavePage();
+  await renderPage(kb, scripting, name, root, seq);
+}
+
+// showPage の本体。startNewPage からは編集中の印を保ったまま呼ぶ
+async function renderPage(kb: Kb, scripting: Scripting, name: string, root: HTMLElement, seq: number): Promise<void> {
   let page = await kb.page(name);
   if (stale(seq)) return;
-  // 変わっている下書きだけを優先する。保存できた（基準と同じ）下書きは、控えの中身（updated 済み）のほうが新しい
-  const draft = page && getDraft(page.path);
-  if (page && draft && isDirty(draft)) page = parsePage({ path: page.path, content: draft.content, sha: draft.base.sha });
+  // 変わっている下書きだけを優先する。保存できた（基準と同じ）下書きは、控えの中身（updated 済み）のほうが新しい。
+  // まだないページは、その name から書き始めた新しいページの下書きを探す
+  const draft = page ? getDraft(page.path) : draftForNewPage(name);
+  if (draft && isDirty(draft)) page = parsePage({ path: draft.base.path, content: draft.content, sha: draft.base.sha });
   const exists = (ref: string) => kb.index.resolve(ref) !== null;
 
   if (!page) {
-    // まだないページ。見出しとバックリンクだけ
+    // まだないページ。見出しとバックリンクだけ。「編集」で新しいページとして書き始める
     document.title = `${name} - web-b2`;
-    root.innerHTML = `<article class="page missing"><h1>${escapeHtml(name)}</h1><p class="note">まだないページ</p></article>`;
+    root.innerHTML = `<article class="page missing"><div class="tools"></div><h1>${escapeHtml(name)}</h1><p class="note">まだないページ</p></article>`;
+    if (synced) {
+      const editButton = document.createElement("button");
+      editButton.type = "button";
+      editButton.className = "edit";
+      editButton.textContent = "編集";
+      editButton.addEventListener("click", () => void startNewPage(kb, scripting, name, root));
+      root.querySelector(".tools")!.append(editButton);
+    }
     await appendRelated(kb, name, root, seq);
     return;
   }
@@ -97,7 +141,7 @@ export async function showPage(kb: Kb, scripting: Scripting, name: string, root:
   editButton.type = "button";
   editButton.className = "edit";
   editButton.textContent = "編集";
-  editButton.addEventListener("click", () => void startEdit(kb, scripting, page, root, seq));
+  editButton.addEventListener("click", () => void startEdit(kb, scripting, page, name, root, seq));
   root.querySelector(".tools")!.append(editButton);
 
   // 作成日・更新日は見出しの直後に置く。見出しがなければ本文の前
@@ -115,10 +159,16 @@ export async function showPage(kb: Kb, scripting: Scripting, name: string, root:
 }
 
 // 本文の場所（H1 と日付を含む）をエディタに差し替える。中身はファイルそのもの（front matter を含む）か、あれば下書き
-async function startEdit(kb: Kb, scripting: Scripting, page: Page, root: HTMLElement, seq: number): Promise<void> {
-  const file = await kb.content(page.path);
-  if (stale(seq) || !file) return;
-  const draft = openDraft(file);
+// viewName は開いたときの名前（URL の name。新しいページでは title になる名前）。「表示」で同じ名前を描き直す
+async function startEdit(kb: Kb, scripting: Scripting, page: Page, viewName: string, root: HTMLElement, seq: number): Promise<void> {
+  editingPath = page.path;
+  // 下書き（新しいページも含む）があればそれを続け、なければ控えのファイルから始める
+  let draft = getDraft(page.path);
+  if (!draft) {
+    const file = await kb.content(page.path);
+    if (stale(seq) || !file) return;
+    draft = openDraft(file);
+  }
   const body = root.querySelector<HTMLElement>(".body");
   const tools = root.querySelector<HTMLElement>(".tools");
   if (!body || !tools) return;
@@ -132,7 +182,7 @@ async function startEdit(kb: Kb, scripting: Scripting, page: Page, root: HTMLEle
   done.className = "view";
   done.textContent = "表示";
   // 描き直す。下書きがあればそれが表示に反映される。エディタの読み込み中に押しても効く
-  done.addEventListener("click", () => void showPage(kb, scripting, page.name, root, beginRender()));
+  done.addEventListener("click", () => void showPage(kb, scripting, viewName, root, beginRender()));
   tools.append(done);
 
   const view = await createEditor(host, draft.content, (value) => updateDraft(page.path, value));
@@ -142,8 +192,22 @@ async function startEdit(kb: Kb, scripting: Scripting, page: Page, root: HTMLEle
     return;
   }
   editor = view;
-  editingPath = page.path;
   view.focus();
+}
+
+// まだないページから書き始める。新しいページの下書きを作り、ページとして描いてからエディタにする
+async function startNewPage(kb: Kb, scripting: Scripting, name: string, root: HTMLElement): Promise<void> {
+  const seq = beginRender();
+  // path が決まる前から編集中とみなす（同期後の描き直しに割り込まれないように）
+  editingPath = "";
+  const dir = await pageDir();
+  if (stale(seq)) return;
+  const { path, content } = newPageFile(name, dir, new Date());
+  const draft = openNewDraft(name, path, content);
+  await renderPage(kb, scripting, name, root, seq);
+  if (stale(seq)) return;
+  const page = parsePage({ path: draft.base.path, content: draft.content, sha: null });
+  await startEdit(kb, scripting, page, name, root, seq);
 }
 
 // 一覧の1項目。同じ title のページを見分けられるように、name を title 属性に入れる

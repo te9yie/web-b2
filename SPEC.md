@@ -63,6 +63,8 @@ Markdownファイルのリポジトリ（知識庫）を、ブラウザから閲
 
 タイトルなしで書き始められる。ファイル名は作成時刻から `YYYY-MM-DD-HHMMSS.md` とし、`KB_DIR` の直下に置く。一覧では `title`（H1がなければ本文の1行目）を表示する。後でH1を付けてもファイル名は変えない。
 
+まだないページ `/p/x` の「編集」から書き始めるときは、1行目を `# x` にして `x` が `title` で解決されるようにする。`x` が `YYYY-MM-DD` の形（日付ページ）のときだけ、ファイル名を `x.md` にする。
+
 front matterには `created` と `updated` を `YYYY-MM-DD` で書く。保存時に `updated` をその日の日付にする。
 
 ## URL
@@ -84,7 +86,7 @@ Workerとローカルモードで同じ形にする。`<path>` はリポジト�
 
 | メソッドとパス | 中身 |
 | --- | --- |
-| `GET /api/pages` | `KB_DIR` の下の `.md` の一覧。`{ pages: [{ path, sha }] }`、パス順 |
+| `GET /api/pages` | `KB_DIR` の下の `.md` の一覧。`{ pages: [{ path, sha }], dir }`、パス順。`dir` は `KB_DIR` の値で、新しいページの置き場に使う |
 | `GET /api/pages/<path>` | 1ページ。`{ path, sha, content }` |
 | `PUT /api/pages/<path>` | `{ content, sha, message }` を受けて書き込み、`{ path, sha }` を返す。`sha` は編集を始めたときの値で、新しいページは `null`。`message` はコミットメッセージ。書き込めるのは `KB_DIR` の下の `.md` だけ |
 | `GET /api/files/<path>` | 添付ファイルの中身をそのまま返す |
