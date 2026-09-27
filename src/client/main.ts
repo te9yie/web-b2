@@ -205,13 +205,14 @@ async function start(): Promise<void> {
     const result = await kb.sync(source);
     note = `${result.fetched.length}件を読み直し`;
     changed = result.fetched.length + result.removed.length > 0;
+    // 索引が最新になったので、まだないページから新しいページを作れる。差分を取れなかったときは（控えが古いので）作らせない
+    markSynced();
   } catch (e) {
     note = `差分を取れなかったので控えを表示: ${message(e)}`;
   }
   performance.measure("sync", "sync:start");
   // 何か変わったときだけ表示を作り直す（変わっていないのに作り直すと、図が描き直されて選択が消える。段階5では編集中の内容も）。
   // 変わっていなければ一覧の状態の文だけ差し替える
-  markSynced();
   const route = router.current();
   if (changed) {
     // settings が変わっていることもあるので読み直す

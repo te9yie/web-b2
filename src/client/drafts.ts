@@ -53,11 +53,12 @@ export function openDraft(file: DraftBase): Draft {
   return draft;
 }
 
-// まだないページ name から新しいページを書き始める。基準は空（sha null、content 空）で、初期の中身が下書きになる
+// まだないページ name から新しいページを書き始める。基準は初期の中身（sha は null）。
+// 何も書かずに離れれば基準と同じなので保存されず、片付けられる
 export function openNewDraft(name: string, path: string, initial: string): Draft {
   const existing = draftForNewPage(name);
   if (existing) return existing;
-  const draft = { base: { path, sha: null, content: "" }, content: initial };
+  const draft = { base: { path, sha: null, content: initial }, content: initial };
   drafts.set(path, draft);
   newPages.set(name, path);
   return draft;

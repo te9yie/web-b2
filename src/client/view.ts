@@ -102,7 +102,8 @@ async function renderPage(kb: Kb, scripting: Scripting, name: string, root: HTML
   // 変わっている下書きだけを優先する。保存できた（基準と同じ）下書きは、控えの中身（updated 済み）のほうが新しい。
   // まだないページは、その name から書き始めた新しいページの下書きを探す
   const draft = page ? getDraft(page.path) : draftForNewPage(name);
-  if (draft && isDirty(draft)) page = parsePage({ path: draft.base.path, content: draft.content, sha: draft.base.sha });
+  // 新しいページの下書きは、まだ何も書いていなくてもページとして出す（そこにエディタを開く）
+  if (draft && (isDirty(draft) || !page)) page = parsePage({ path: draft.base.path, content: draft.content, sha: draft.base.sha });
   const exists = (ref: string) => kb.index.resolve(ref) !== null;
 
   if (!page) {
@@ -166,12 +167,19 @@ async function startEdit(kb: Kb, scripting: Scripting, page: Page, viewName: str
   let draft = getDraft(page.path);
   if (!draft) {
     const file = await kb.content(page.path);
-    if (stale(seq) || !file) return;
+    if (stale(seq)) return;
+    if (!file) {
+      editingPath = null;
+      return;
+    }
     draft = openDraft(file);
   }
   const body = root.querySelector<HTMLElement>(".body");
   const tools = root.querySelector<HTMLElement>(".tools");
-  if (!body || !tools) return;
+  if (!body || !tools) {
+    editingPath = null;
+    return;
+  }
 
   const host = document.createElement("div");
   host.className = "editor";
@@ -200,9 +208,26 @@ async function startNewPage(kb: Kb, scripting: Scripting, name: string, root: HT
   const seq = beginRender();
   // path が決まる前から編集中とみなす（同期後の描き直しに割り込まれないように）
   editingPath = "";
-  const dir = await pageDir();
+  let dir: string;
+  try {
+    dir = await pageDir();
+  } catch (e) {
+    if (stale(seq)) return;
+    editingPath = null;
+    const tools = root.querySelector<HTMLElement>(".tools");
+    if (tools) tools.textContent = `新しいページを置く場所を取れない: ${e instanceof Error ? e.message : String(e)}`;
+    return;
+  }
   if (stale(seq)) return;
-  const { path, content } = newPageFile(name, dir, new Date());
+  // 同じ秒に別の名前から作った下書きや、既にあるファイルと path が重ならないよう、重なれば1秒進める
+  const now = new Date();
+  let file = newPageFile(name, dir, now);
+  const taken = (p: string) => getDraft(p) !== undefined || [...kb.index.pages.values()].some((m) => m.path === p);
+  for (let i = 0; i < 60 && taken(file.path); i++) {
+    now.setSeconds(now.getSeconds() + 1);
+    file = newPageFile(name, dir, now);
+  }
+  const { path, content } = file;
   const draft = openNewDraft(name, path, content);
   await renderPage(kb, scripting, name, root, seq);
   if (stale(seq)) return;

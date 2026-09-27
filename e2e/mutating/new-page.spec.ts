@@ -53,7 +53,9 @@ test("まだないページに書き込むと、時刻のファイル名で KB_D
     await page.goto("/p/2026-01-25");
     await expect(page.locator("section.backlinks li", { hasText: "新しい見本のページ" })).toHaveCount(1);
   } finally {
-    if (created) await rm(`e2e/.data/${created}`, { force: true });
+    // 途中で落ちても、増えたファイルはすべて消す
+    const extra = created ? [created] : (await listPaths(request)).filter((p) => !before.includes(p));
+    for (const p of extra) await rm(`e2e/.data/${p}`, { force: true });
   }
 });
 

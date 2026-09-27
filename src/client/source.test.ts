@@ -26,6 +26,9 @@ describe("ApiSource: ローカルモードのAPIを取り込み元にする", ()
     expect(first.fetched.length).toBe(16);
     expect(calls.filter((u) => u === "/api/pages").length).toBe(1);
     expect(calls.filter((u) => u.startsWith("/api/pages/")).length).toBe(16);
+    // dir は一覧で受け取ったものを返し、一覧を取り直さない
+    expect(await source.dir()).toBe("notes");
+    expect(calls.filter((u) => u === "/api/pages").length).toBe(1);
 
     calls.length = 0;
     const again = await Kb.open(store);
