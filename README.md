@@ -1,6 +1,6 @@
 # web-b2
 
-Markdownファイルのリポジトリ（知識庫）をブラウザから閲覧・検索・編集するWebアプリ。Cloudflare Workers上で動き、正本はGitHubに置く。Scrapboxのように `[[リンク]]` で書いてつなぐ操作を軽くし、それ以外の機能は `settings` ページのスクリプトで組み立てる。
+Markdownファイルのリポジトリ（知識庫）をブラウザから閲覧・検索・編集するWebアプリ。Cloudflare Workers上で動き、ファイルはGitHubのリポジトリに置く。`[[リンク]]` で書いてつなぐ操作を軽くし、それ以外の機能は `settings` ページのスクリプトで組み立てる。
 
 - 仕様は [SPEC.md](SPEC.md)
 - 作業の順番は [TODO.md](TODO.md)

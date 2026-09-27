@@ -1,6 +1,6 @@
 # web-b2 の作業指示
 
-Markdownファイルのリポジトリ（知識庫）をブラウザから閲覧・検索・編集するWebアプリ。Cloudflare Workersで動かし、正本はGitHubに置く。仕様は `SPEC.md`、作業の順番は `TODO.md`、設計を変えた理由は `DECISIONS.md` にある。この三つを読んでから作業を始める。
+Markdownファイルのリポジトリ（知識庫）をブラウザから閲覧・検索・編集するWebアプリ。Cloudflare Workersで動かし、ファイルはGitHubのリポジトリに置く。仕様は `SPEC.md`、作業の順番は `TODO.md`、設計を変えた理由は `DECISIONS.md` にある。この三つを読んでから作業を始める。
 
 ## 言語
 

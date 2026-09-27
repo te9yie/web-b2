@@ -4,7 +4,7 @@
 
 ## 何を作るか
 
-Markdownファイルのリポジトリ（知識庫）を、ブラウザから閲覧・検索・編集するWebアプリ。Scrapboxのように「書いて `[[リンク]]` でつなぐ」操作を軽くし、それ以外の機能はページとスクリプトで組み立てる。コアに入れるのは、Markdownの解析、リンクとタグの索引、エディタ、マクロの呼び出し口、CSSとUserScriptの読み込み、の五つだけ。機能を足したくなったらまずUserScriptで書けないかを考え、書けないときだけコアに呼び出し口を足す。
+Markdownファイルのリポジトリ（知識庫）を、ブラウザから閲覧・検索・編集するWebアプリ。「書いて `[[リンク]]` でつなぐ」操作を軽くし、それ以外の機能はページとスクリプトで組み立てる。コアに入れるのは、Markdownの解析、リンクとタグの索引、エディタ、マクロの呼び出し口、CSSとUserScriptの読み込み、の五つだけ。機能を足したくなったらまずUserScriptで書けないかを考え、書けないときだけコアに呼び出し口を足す。
 
 アプリからAIは呼ばない。AIに任せたい処理はページに印（`#要約待ち` のようなタグ）を付けておき、別のツールで処理する。
 
@@ -12,7 +12,7 @@ Markdownファイルのリポジトリ（知識庫）を、ブラウザから閲
 
 一つのCloudflare Workerで、静的ファイル（SPA）と `/api/*` を配信する。前段にCloudflare Accessを置き、Workerは `Cf-Access-Jwt-Assertion` ヘッダーのJWTを検証する。検証に失敗したリクエストはすべて401にする。
 
-正本はGitHubのリポジトリ。Workerは、そのリポジトリの Contents に限定した fine-grained token を持ち、GitHub APIへの中継だけを行う。Markdownの解析、索引、検索、マクロの展開、表示はすべてブラウザで行う（Workersは1リクエストのCPU時間が短く、`eval` と `new Function` が使えない）。
+ファイルはGitHubのリポジトリにあり、アプリはそれを直接読み書きする。Workerは、そのリポジトリの Contents に限定した fine-grained token を持ち、GitHub APIへの中継だけを行う。Markdownの解析、索引、検索、マクロの展開、表示はすべてブラウザで行う（Workersは1リクエストのCPU時間が短く、`eval` と `new Function` が使えない）。
 
 ブラウザは初回にリポジトリのtarballをWorker経由で取得して展開し、索引を作ってIndexedDBに保存する。2回目以降は最後に見たコミットからの差分だけをGitHub APIで取り、変わったファイルだけ読み直す。
 
@@ -24,8 +24,7 @@ Markdownファイルのリポジトリ（知識庫）を、ブラウザから閲
 | --- | --- |
 | `KB_REPO` | `owner/repo` |
 | `KB_BRANCH` | 読み書きするブランチ。既定 `main` |
-| `KB_DIRS` | ページを読むディレクトリ。カンマ区切り。既定 `notes,inbox` |
-| `KB_WRITE_DIR` | Webから作るページの置き場所。既定 `notes` |
+| `KB_DIR` | ページを読み書きするディレクトリ。既定 `notes` |
 | `GITHUB_TOKEN` | fine-grained token（secret） |
 | `ACCESS_TEAM_DOMAIN` | `https://<team>.cloudflareaccess.com` |
 | `ACCESS_AUD` | AccessアプリケーションのAUDタグ |
@@ -33,7 +32,7 @@ Markdownファイルのリポジトリ（知識庫）を、ブラウザから閲
 
 ## ページのモデル
 
-`KB_DIRS` の各ディレクトリ直下の `.md` ファイルが1ページ。サブディレクトリも再帰的に読む。
+`KB_DIR` の中の `.md` ファイルが1ページ。サブディレクトリも再帰的に読む。
 
 | 項目 | 決め方 |
 | --- | --- |
@@ -62,7 +61,7 @@ Markdownファイルのリポジトリ（知識庫）を、ブラウザから閲
 
 ## 新しいページ
 
-タイトルなしで書き始められる。ファイル名は作成時刻から `YYYY-MM-DD-HHMMSS.md` とし、`KB_WRITE_DIR` に置く。一覧では `title`（H1がなければ本文の1行目）を表示する。後でH1を付けてもファイル名は変えない。
+タイトルなしで書き始められる。ファイル名は作成時刻から `YYYY-MM-DD-HHMMSS.md` とし、`KB_DIR` の直下に置く。一覧では `title`（H1がなければ本文の1行目）を表示する。後でH1を付けてもファイル名は変えない。
 
 front matterには `created` と `updated` を `YYYY-MM-DD` で書く。保存時に `updated` をその日の日付にする。
 

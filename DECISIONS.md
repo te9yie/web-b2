@@ -14,13 +14,9 @@ Workersは静的ファイルとAPIを同じWorkerで扱え、静的ファイル�
 
 Workers Buildsは無料プランでビルド3,000分/月、同時1、20分でタイムアウト（https://developers.cloudflare.com/workers/ci-cd/builds/limits-and-pricing/ 、取得日: 2026-09-27）。公開リポジトリならGitHub Actionsは無料（https://docs.github.com/en/billing/concepts/product-billing/github-actions 、取得日: 2026-09-27）。デプロイにActionsを使わないので、Actionsはテストだけに使う。
 
-## 2026-09-27 索引はGitHub Actionsで作らない
+## 2026-09-27 索引はブラウザで作る
 
-非公開の知識庫リポジトリ側でActionsを回すと無料枠を消費する。代わりにブラウザがtarballを一度取得して索引を作り、IndexedDBに保存して差分だけ取る。
-
-## 2026-09-27 Webから作るページの置き場所は環境変数にする
-
-知識庫のどのディレクトリに新しいページを置くかはアプリでは決めず、`KB_WRITE_DIR`（既定 `notes`）で指定する。
+ブラウザがtarballを一度取得して索引を作り、IndexedDBに保存して以後は差分だけ取る。このリポジトリは公開なのでGitHub Actionsは無料で、Actionsで索引を作ることもできる。それでも最初はブラウザで作る。Actionsで作った索引を置く場所（KVかR2）とCloudflareのAPIトークン、知識庫のpushからこちらのワークフローを起動する仕組みが別に要り、検索と表示に全文が要る以上、ブラウザが受け取るデータの量も索引ファイルとtarballで変わらない。スマホで索引の作成が遅すぎると分かったら、Actionsで作ってR2に置く形に切り替える。
 
 ## 2026-09-27 ログインはCloudflare Access、IdPはGitHub
 
