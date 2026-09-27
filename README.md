@@ -35,7 +35,7 @@ Worker は画面の静的ファイルと `/api/*` を配り、`/api/*` では Gi
 
 ### 設定値はすべてシークレットで、本番とプレビューの両方に登録する
 
-このリポジトリは公開なので、`wrangler.jsonc` には設定値を書かない。ダッシュボードの Worker の「設定」タブ（Settings > Variables and Secrets）で、タイプを「シークレット」にして登録する。テキスト（平文の変数）で登録すると、デプロイのあとで消えて 401 になったことがある（原因は `wrangler deploy` で消えたためと推測しているが未確認。シークレットで登録し直すと直った）。
+このリポジトリは公開なので、`wrangler.jsonc` には設定値を書かない。ダッシュボードの Worker の「設定」タブ（Settings > Variables and Secrets）で、タイプを「シークレット」にして登録する。テキスト（平文の変数）で登録すると、デプロイのあとで消えて 401 になる。`wrangler deploy` はダッシュボードで設定した変数を上書きし、シークレットは消さない（https://developers.cloudflare.com/workers/wrangler/configuration/ 、取得日: 2026-09-28）。
 
 プロダクションと Previews Base の両方に同じものを登録する。Previews Base のシークレットは、登録した後に作られたプレビュー（新しいブランチの最初の push）にしか入らない。登録前からあるブランチのプレビューで確かめたいときは、新しいブランチを push する。
 
@@ -53,7 +53,7 @@ Worker は画面の静的ファイルと `/api/*` を配り、`/api/*` では Gi
 ### 1. Workers Builds にリポジトリをつなぎ、Access で保護する
 
 1. Cloudflare のダッシュボードの Workers & Pages で、このリポジトリ（を fork したもの）をインポートする。
-2. プロジェクト名は `web-b2` にする。`wrangler.jsonc` の `name` と同じ名前にしておく。別の名前にするなら `wrangler.jsonc` の `name` も直す（Workers Builds が名前の一致を求めるかは未確認）。
+2. プロジェクト名は `web-b2` にする。Workers Builds では、ダッシュボードの Worker 名と `wrangler.jsonc` の `name` を一致させる必要がある（https://developers.cloudflare.com/workers/ci-cd/builds/troubleshoot/ 、取得日: 2026-09-28）。別の名前にするなら `wrangler.jsonc` の `name` も直す。
 3. ビルドコマンドは `npm run build`、デプロイコマンドは `npx wrangler deploy`（既定のまま）、本番ブランチは `main`、プレビュービルドは有効にする。`wrangler.jsonc` の `"previews": {}` はプレビューのビルドに要るので消さない。
 4. 「Protect with Cloudflare Access」をオンにし、ポリシーは Cloudflare account members にする。
 5. 最初のビルドとデプロイが成功することを確かめる。
@@ -85,7 +85,7 @@ Access がかかっていなくても、Worker は JWT のないリクエスト�
 
 ### 4. GitHub のトークンを作り、知識庫のリポジトリを登録する
 
-1. GitHub の Settings > Developer settings > Personal access tokens > Fine-grained tokens でトークンを作る。Repository access は「Only select repositories」にして知識庫のリポジトリだけを選び、Repository permissions は Contents を Read and write にする（Metadata の Read-only は自動で付く）。ほかの権限は付けない。
+1. GitHub の Settings > Developer settings > Personal access tokens > Fine-grained tokens でトークンを作る。知識庫のリポジトリが組織のものなら、Resource owner をその組織にする（自分のままだと組織のリポジトリを選べない）。Repository access は「Only select repositories」にして知識庫のリポジトリだけを選び、Repository permissions は Contents を Read and write にする（Metadata の Read-only は自動で付く）。ほかの権限は付けない。
 2. 期限の日を控える。切れると `/api/*` が 502 になる。
 3. 「設定」タブで、プロダクションと Previews Base の両方に `GITHUB_TOKEN` と `KB_REPO` をシークレットで登録する。ブランチが `main` でなければ `KB_BRANCH` を、ページの置き場が `notes` でなければ `KB_DIR` も登録する。
 
@@ -99,12 +99,12 @@ Access がかかっていなくても、Worker は JWT のないリクエスト�
 
 ### うまくいかないとき
 
-`/api/pages` を開いたときに出るもので見分ける。403 と 404 の原因は GitHub の一般的な応答から考えたもので、このアプリで確かめたのは 401 だけ。
+`/` か `/api/pages` を開いたときに出るもので見分ける。このアプリで確かめたのは Access の 401 だけで、502 の行はどれも GitHub の一般的な応答から考えたもの。
 
 | 見えるもの | 考えられる原因 |
 | --- | --- |
 | ログイン画面が出ずに画面が開く | Access がかかっていない。手順1と2の Access の設定を見直す |
-| 401 `Accessを通っていない` | `ACCESS_TEAM_DOMAIN` か `ACCESS_AUD` がないか違う。プレビューなら、Previews Base に登録する前に作られたプレビューを開いている（新しいブランチを push する）。テキストの変数で登録していたら、シークレットで登録し直す |
+| 401 `Accessを通っていない` | ログイン画面を経ずに開けたなら、Access がかかっていない（1行目と同じ）。ログインした後なら、`ACCESS_TEAM_DOMAIN` か `ACCESS_AUD` がないか違う。プレビューなら、Previews Base に登録する前に作られたプレビューを開いている（新しいブランチを push する）。テキストの変数で登録していたら、シークレットで登録し直す |
 | 500 `KB_REPO か GITHUB_TOKEN が設定されていない` | 手順4の登録がない |
 | 502 `GitHub: ブランチの取得が 401` | トークンの打ち間違いか期限切れ |
 | 502 `GitHub: ブランチの取得が 403` | トークンの権限が足りない。組織のリポジトリなら、組織が fine-grained token を許可していない |
@@ -118,11 +118,11 @@ Access がかかっていなくても、Worker は JWT のないリクエスト�
 
 ## ブックマークレットで取り込む
 
-`/new?title=&body=` は新しいページを作り、`/append?page=&body=` は決まったページの末尾に足す。どちらも開いただけでは書かず、行き先と本文の確認画面が出て、「保存」を押したときに書く。本文は確認画面で直せる。`/new` の `title` が既存のページと同じ名前なら、新しいページを作らずそのページの末尾に足す。まだないページへの `/append` はページを作る（`YYYY-MM-DD` の形ならファイル名も日付になる）。
+`/new?title=&body=` は新しいページを作り、`/append?page=&body=` は決まったページの末尾に足す。どちらも開いただけでは書かず、行き先と本文の確認画面が出て、「保存」を押したときに書く。本文は確認画面で直せる。`/new` の `title` が既存のページ（ファイル名か見出し）に当たるなら、新しいページを作らずそのページの末尾に足す。まだないページへの `/append` はページを作る（`YYYY-MM-DD` の形ならファイル名も日付になる）。
 
-確認画面の「保存」は、起動後の差分の同期が済み、ページが前に出てから500ms経つまで押せない。初めて開く端末では、知識庫全体の取り込みが終わるまで待つ。確認画面は別のサイトの枠（iframe）の中では「保存」を出さないので、下の例はどれも新しいタブで開く。
+確認画面の「保存」は、起動後の差分の同期が済み、ページが前に出てから500ms経つまで押せない。初めて開く端末では、知識庫全体の取り込みが終わるまで待つ。下の例は、取り込み元のページを残すために新しいタブで開く。確認画面は別のサイトの枠（iframe）の中では「保存」を出さないので、取り込み元のページの中に枠で確認画面を出す作りにはできない。
 
-`title` や `page` に見出しとして描くと HTML かリンクになる文字（`Vec<T>` の `<T` や `](` など）があるときは、確認画面にタイトルを直す欄が出る。直すと保存できる。本文に HTML に見える文字（`<T` など）があるときは注意が出るが、保存は止めない。
+新しいページを作るとき、`title` や `page` を見出しにすると HTML かリンクになる文字（`Vec<T>` の `<T` や `](` など）がある場合と、見出しから読み直すと別の文字になる場合（`Episode #` の末尾の ` #` は見出しの閉じの記号として落ちる）は、確認画面にタイトルを直す欄が出る。直すと保存できる。既存のページに足すときは見出しを書かないので、この欄は出ない。本文に HTML に見える文字（`<T` など）があるときは注意が出るが、保存は止めない。
 
 ### ブックマークレットの入れ方
 
@@ -130,7 +130,7 @@ PC の Chrome では、ブックマークバーで右クリックして「ペー
 
 コードを直すときの注意が二つある。URL 欄に貼ると改行が消えるので、`//` のコメントを書かない（以後が全部コメントになる）。`javascript:` の URL は実行の前に `%` と16進2桁の並びがデコードされるので、コードの中に `%28` のような並びを直に書かない（例の `'%'+c.charCodeAt(0).toString(16)` はそのためにこう書いている）。
 
-Android の Chrome では、PC の Chrome と同期していれば PC で作ったブックマークがそのまま入る。Android で作るときは、何かのページをブックマークしてから、ブックマークの編集で URL 欄にコードを貼る。ブックマークの一覧から押しても動かず、アドレスバーにブックマークの名前を打って候補に出たものを押すと動く、と一般に言われている。打ちやすい名前（`kbnew`、`kbtoday` など）にしておく。Android での動きは、アドレスバーから動くか、`window.open` で新しいタブが開くか、選択範囲が残るかを含めて未確認。新しいタブが開かなければ、コードの最後の `window.open(u,'_blank','noopener')` を `location.href=u` に替える（同じタブで開き、取り込み元のページからは離れる）。
+Android の Chrome では、PC の Chrome と同期していれば PC で作ったブックマークがそのまま入る。Android で作るときは、何かのページをブックマークしてから、ブックマークの編集で URL 欄にコードを貼る。ブックマークの一覧から押しても動かず、アドレスバーにブックマークの名前を打って候補に出たものを押すと動く（未確認。`TODO.md` の人待ちで確かめる）。打ちやすい名前（`kbnew`、`kbtoday` など）にしておく。`window.open` で新しいタブが開くか、選択範囲が残るかも未確認。新しいタブが開かなければ、コードの最後の `window.open(u,'_blank','noopener')` を `location.href=u` に替える（同じタブで開き、取り込み元のページからは離れる）。
 
 コードの中に日本語（`(以下略)`、`あとで読む`）を直に書いたブックマークレットが Chrome で動くかは未確認。動かなければ `'\u3042\u3068\u3067\u8aad\u3080'` のように `\u` で書く。サイトによってはブックマークレットが動かないことがある（取り込み元のページの設定によるものと推測）。
 
@@ -143,7 +143,7 @@ Android の共有メニューからの取り込み（`share_target`）はまだ�
 貼る1行:
 
 ```text
-javascript:(()=>{const B='https://web-b2.<サブドメイン>.workers.dev',M=6000;const w=s=>s.toWellFormed?s.toWellFormed():s;let s=w(String(getSelection()).trim()),q='',n=0;for(const c of s){n+=encodeURIComponent(c).length;if(n>M){q+='\n(以下略)';break}q+=c}const b=location.href+(q?'\n\n'+q.split('\n').map(l=>'> '+l).join('\n'):'');const u=B+'/new?title='+encodeURIComponent(w(document.title))+'&body='+encodeURIComponent(b);window.open(u,'_blank','noopener')})();
+javascript:(()=>{const B='https://web-b2.<サブドメイン>.workers.dev',M=6000;const w=s=>s.toWellFormed?s.toWellFormed():s;let s=w(String(getSelection()).trim()),q='',n=0;for(const c of s){const e=c==='\n'?'\n> ':c;n+=encodeURIComponent(e).length;if(n>M){q+='\n> (以下略)';break}q+=e}const b=location.href+(q?'\n\n> '+q:'');const u=B+'/new?title='+encodeURIComponent(w(document.title))+'&body='+encodeURIComponent(b);window.open(u,'_blank','noopener')})();
 ```
 
 読むための形（貼るのは上の1行）:
@@ -155,19 +155,20 @@ javascript:(()=>{const B='https://web-b2.<サブドメイン>.workers.dev',M=600
   // 対になっていないサロゲートがあると encodeURIComponent が例外を投げるので置き換える
   const w = (s) => (s.toWellFormed ? s.toWellFormed() : s);
   let s = w(String(getSelection()).trim()), q = '', n = 0;
-  // 文字（コードポイント）ごとに数え、上限を超えたらそこで切る
+  // 文字（コードポイント）ごとに、引用の形（改行は「改行と > 」）にしてから数え、上限を超えたらそこで切る
   for (const c of s) {
-    n += encodeURIComponent(c).length;
-    if (n > M) { q += '\n(以下略)'; break; }
-    q += c;
+    const e = c === '\n' ? '\n> ' : c;
+    n += encodeURIComponent(e).length;
+    if (n > M) { q += '\n> (以下略)'; break; }
+    q += e;
   }
-  const b = location.href + (q ? '\n\n' + q.split('\n').map((l) => '> ' + l).join('\n') : '');
+  const b = location.href + (q ? '\n\n> ' + q : '');
   const u = B + '/new?title=' + encodeURIComponent(w(document.title)) + '&body=' + encodeURIComponent(b);
   window.open(u, '_blank', 'noopener');
 })();
 ```
 
-切るのは選択範囲だけで、長さは文字数ではなくエンコードした後の長さで数える。日本語は1文字が `%E3%81%82` の9文字になるので、6000 は日本語でおよそ660文字になる。タイトルの改行や続いた空白は確認画面の側で1つの空白にまとめる。同じ記事を二度取り込むと、2回目は同じ名前のページへの追記になる。
+切るのは選択範囲だけで、長さは文字数ではなく、引用の `> ` を付けてエンコードした後の長さで数える。日本語は1文字が `%E3%81%82` の9文字になるので、6000 は日本語でおよそ660文字になる。短い行が続く選択範囲（箇条書きや表）では、行ごとに増える `%0A%3E%20` の分だけ入る文字が少なくなる。ページの URL とタイトルは数えていないので、その分だけ URL は 6000 文字より長くなる。タイトルの改行や続いた空白は確認画面の側で1つの空白にまとめる。同じ記事を二度取り込むと、2回目は同じ名前のページへの追記になる。
 
 ### 今日の日付ページに足す（/append）
 
@@ -176,7 +177,7 @@ javascript:(()=>{const B='https://web-b2.<サブドメイン>.workers.dev',M=600
 貼る1行:
 
 ```text
-javascript:(()=>{const B='https://web-b2.<サブドメイン>.workers.dev';const d=new Date(),z=x=>String(x).padStart(2,'0');const p=d.getFullYear()+'-'+z(d.getMonth()+1)+'-'+z(d.getDate());const t=(document.title||location.href).replace(/\s+/g,' ').replace(/[\[\]]/g,'\\$&');const h=location.href.replace(/[()]/g,c=>'%'+c.charCodeAt(0).toString(16));const u=B+'/append?page='+encodeURIComponent(p)+'&body='+encodeURIComponent('- ['+t+']('+h+')');window.open(u,'_blank','noopener')})();
+javascript:(()=>{const B='https://web-b2.<サブドメイン>.workers.dev';const d=new Date(),z=x=>String(x).padStart(2,'0');const p=d.getFullYear()+'-'+z(d.getMonth()+1)+'-'+z(d.getDate());const t=(document.title||location.href).replace(/\s+/g,' ').replace(/[\\\[\]]/g,'\\$&');const h=location.href.replace(/[()]/g,c=>'%'+c.charCodeAt(0).toString(16));const u=B+'/append?page='+encodeURIComponent(p)+'&body='+encodeURIComponent('- ['+t+']('+h+')');window.open(u,'_blank','noopener')})();
 ```
 
 読むための形:
@@ -186,8 +187,8 @@ javascript:(()=>{const B='https://web-b2.<サブドメイン>.workers.dev';const
   const B = 'https://web-b2.<サブドメイン>.workers.dev';
   const d = new Date(), z = (x) => String(x).padStart(2, '0');
   const p = d.getFullYear() + '-' + z(d.getMonth() + 1) + '-' + z(d.getDate());
-  // リンクの表示名。改行をまとめ、[ ] は Markdown のリンクを壊すので \ を付ける
-  const t = (document.title || location.href).replace(/\s+/g, ' ').replace(/[\[\]]/g, '\\$&');
+  // リンクの表示名。改行をまとめ、\ [ ] は Markdown のリンクを壊すので \ を付ける
+  const t = (document.title || location.href).replace(/\s+/g, ' ').replace(/[\\\[\]]/g, '\\$&');
   // URL の ( ) はリンクの終わりと読まれるのでエンコードする（%28 と直に書くと実行前にデコードされる）
   const h = location.href.replace(/[()]/g, (c) => '%' + c.charCodeAt(0).toString(16));
   const u = B + '/append?page=' + encodeURIComponent(p) + '&body=' + encodeURIComponent('- [' + t + '](' + h + ')');
@@ -204,13 +205,13 @@ javascript:(()=>{const B='https://web-b2.<サブドメイン>.workers.dev';const
 貼る1行:
 
 ```text
-javascript:(()=>{const B='https://web-b2.<サブドメイン>.workers.dev';const p='あとで読む';const t=(document.title||location.href).replace(/\s+/g,' ').replace(/[\[\]]/g,'\\$&');const h=location.href.replace(/[()]/g,c=>'%'+c.charCodeAt(0).toString(16));const u=B+'/append?page='+encodeURIComponent(p)+'&body='+encodeURIComponent('- ['+t+']('+h+')');window.open(u,'_blank','noopener')})();
+javascript:(()=>{const B='https://web-b2.<サブドメイン>.workers.dev';const p='あとで読む';const t=(document.title||location.href).replace(/\s+/g,' ').replace(/[\\\[\]]/g,'\\$&');const h=location.href.replace(/[()]/g,c=>'%'+c.charCodeAt(0).toString(16));const u=B+'/append?page='+encodeURIComponent(p)+'&body='+encodeURIComponent('- ['+t+']('+h+')');window.open(u,'_blank','noopener')})();
 ```
 
 読むための形は、今日の日付ページの例の `p` を `'あとで読む'` にしたもの。`page` に `settings` ページを指定すると、確認画面に注意が出る。
 
 ### 長い選択範囲と、ログインが切れているとき
 
-URL の長さには Cloudflare 側の上限があり、値は未確認。上の /new の例は、選択範囲をエンコードした後の長さが 6000 文字を超えたら切って `(以下略)` を付ける。6000 は、上限を 16KB と見て、ログインを挟むと URL がもう一度エンコードされて長くなる分を見込んで置いた値で、根拠は推測。確認画面の本文の最後が `(以下略)` になっていたら、足りない分は保存した後にページを編集して足す。
+URL の長さには Cloudflare 側の上限があり、値は未確認。上の /new の例は、引用の形にした選択範囲をエンコードした後の長さが 6000 文字を超えたら切って `(以下略)` を付ける。6000 は、上限を 16KB と見て、ログインを挟むと URL がもう一度エンコードされて長くなる分を見込んで置いた値で、根拠は推測。上限が分かったら `M` を直す。確認画面の本文の最後が `(以下略)` になっていたら、足りない分は保存した後にページを編集して足す。
 
 Access のログインが切れているときにブックマークレットを押すと、ログイン画面を挟む。ログインの後に `title` と `body` が残って確認画面に出るかは未確認。確認画面の本文が空なら、一度アプリを開いてログインしてから、ブックマークレットを押し直す。
