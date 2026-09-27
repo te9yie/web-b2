@@ -2,6 +2,12 @@
 
 新しいものを上に足す。`SPEC.md` を変えるときは先にここに書く。
 
+## 2026-09-27 /api/* ではAccessのJWTをWorkerで検証する
+
+`ctx.access` がないリクエストを401にするつもりだったが、静的ファイルを持つWorkerは内部のrouter Workerの後ろで動き、routerは `ctx.access` をこちらのWorkerに渡さない（https://developers.cloudflare.com/workers/configuration/cloudflare-access/ 、取得日: 2026-09-27）。一時的に入れた `/api/whoami` で本番のプレビューを確かめると、`ctx.access` はなく、`Cf-Access-Jwt-Assertion` ヘッダーと `CF_Authorization` クッキーは届いていた。
+
+静的ファイルをWorkerで配ると静的アセットの無料・無制限の扱いから外れるので、Workerを分けずに、ヘッダーのJWTを自分で検証する。鍵はチームドメインの `/cdn-cgi/access/certs` から取り、RS256の署名、`aud`、`iss`、期限を確かめる。WebCryptoで書けるのでライブラリは足さない。チームドメインとAUDは、ほかの設定値と同じく Secret（`ACCESS_TEAM_DOMAIN`、`ACCESS_AUD`）にする。どちらかが未設定なら、確かめようがないので401にする。
+
 ## 2026-09-27 /api/* のパスはリポジトリのルートから、SHAはGitのblobのSHAにする
 
 ページと添付ファイルのパスは、`KB_DIR` を含めたリポジトリのルートからのパス（`notes/a.md`）で渡す。添付ファイルは `KB_DIR` の外に置かれることもあり、ページの中の相対パスから解決した結果をそのままAPIに渡せる。GitHubのContents APIもリポジトリのルートからのパスを取るので、Workerで組み立て直さなくてよい。書き込めるのは `KB_DIR` の下の `.md` だけにする。
