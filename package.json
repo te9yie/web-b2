@@ -22,6 +22,8 @@
     "wrangler": "^4.141.0"
   },
   "dependencies": {
+    "@codemirror/lang-markdown": "^6.5.2",
+    "codemirror": "^6.0.2",
     "marked": "^18.0.14",
     "mermaid": "^12.0.0"
   }
