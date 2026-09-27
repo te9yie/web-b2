@@ -201,6 +201,13 @@ describe("maskCode", () => {
   it("インラインコードは空行をまたがない", () => {
     expect(extractLinks("`x\n\n[[a]]` [[b]]")).toEqual(["a", "b"]);
   });
+
+  it("末尾のバッククォートと、閉じないものの後に閉じるものが続く形", () => {
+    expect(extractLinks("[[a]] `")).toEqual(["a"]);
+    expect(extractLinks("``[[a]]`[[b]]` [[c]]")).toEqual(["a", "c"]);
+    expect(extractLinks("`[[a]]``[[b]]` [[c]]")).toEqual(["c"]);
+    expect(maskCode("a `b` `")).toBe(`a ${"".repeat(3)} \``);
+  });
 });
 
 describe("extractLinks", () => {

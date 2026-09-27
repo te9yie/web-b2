@@ -10,7 +10,7 @@ export interface SynthFile {
 export interface SynthOptions {
   // ページ数
   count?: number;
-  // 1ページあたりのおおよそのバイト数。合計がこれ×count に近くなるように本文の長さを決める
+  // 1ページの本文の長さの基準になるバイト数。長さの散らし方の平均が約1.2倍なので、合計はこれ×count×1.2 に近くなる
   bytesPerPage?: number;
   seed?: number;
 }
@@ -54,7 +54,7 @@ function dateOf(day: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-export function synthesize({ count = 10000, bytesPerPage = 6400, seed = 1 }: SynthOptions = {}): SynthFile[] {
+export function synthesize({ count = 10000, bytesPerPage = 5600, seed = 1 }: SynthOptions = {}): SynthFile[] {
   const rand = rng(seed);
   const words = makeWords(rand, 3000);
   const tags = makeWords(rand, 300);
@@ -101,13 +101,11 @@ export function synthesize({ count = 10000, bytesPerPage = 6400, seed = 1 }: Syn
     const scale = Math.exp((rand() + rand() + rand() - 1.5) * 1.2);
     const target = Math.max(300, Math.floor(bytesPerPage * scale));
     let bytes = 0;
-    let section = 0;
     while (bytes < target) {
       const r = rand();
       let block: string;
       if (r < 0.15) {
         block = `\n## ${pick(rand, words)}${pick(rand, words)}\n`;
-        section++;
       } else if (r < 0.3) {
         // 箇条書き。3項目に1つくらいリンクを入れる
         const items = Array.from({ length: 2 + Math.floor(rand() * 4) }, () => `- ${sentence(3)}${rand() < 0.35 ? ` ${link()}` : ""}`);
@@ -126,7 +124,6 @@ export function synthesize({ count = 10000, bytesPerPage = 6400, seed = 1 }: Syn
     }
     const dir = i % 50 === 0 ? "notes/sub" : "notes";
     files.push({ path: `${dir}/${name}.md`, content: parts.join("") });
-    void section;
   }
   return files;
 }
