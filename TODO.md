@@ -23,6 +23,12 @@ AIには権限がなく、人がやる必要があること。上から順にや
   - 以後、Workerの設定値は「設定」タブで、プロダクションと Previews Base の両方に、タイプを「シークレット」にして登録する。Previews Base のシークレットは、登録した後に作られたプレビュー（新しいブランチの最初のpush）にしか入らない。
 - [x] GitHubの Settings > Developer settings > Personal access tokens > Fine-grained tokens で、Repository access を知識庫リポジトリだけ、Repository permissions を Contents: Read and write だけにしたトークンを作る。期限の日を控える
 - [x] Workerの Settings > Variables and Secrets で、`GITHUB_TOKEN` と `KB_REPO`（`owner/repo`）を Secret として登録する。公開リポジトリの wrangler 設定には書かない
+- [ ] `README.md` の「Cloudflare に置く」を読み、実際にした設定と食い違いがないか確かめる。とくにダッシュボードの項目名（「設定」タブ、Previews Base、「ドメイン」タブの Worker URL）と、シークレットを登録しただけで本番に反映されたか
+- [ ] PC の Chrome で `README.md` の3つのブックマークレットを入れて押し、確認画面に title と本文が期待どおり出て、保存できることを確かめる。日本語を直に書いた「あとで読む」と `(以下略)` が動くかも見る
+- [ ] Android の Chrome で /new のブックマークレットを、アドレスバーにブックマークの名前を打つ方法で押す。動くか、`window.open` で新しいタブが開くか（開かなければ `location.href=u` の形で試す）、選択範囲が残るかを記録する
+- [ ] URL の長さの上限。ログインしたアプリのタブで、開発者ツールのコンソールから `location.href = '/new?body=' + encodeURIComponent('あ'.repeat(N))` を N = 500, 1000, 1500, 2000 で開き（URL はおよそ 9N 文字）、本文が欠けずに出る最大の N と、超えたときに何が出るか（414 か、Cloudflare のエラーページか）を記録する
+- [ ] ログインが切れているときにクエリが残るか。ログインしたタブのコンソールで `copy(location.origin + '/new?title=x&body=' + encodeURIComponent('あ'.repeat(500)))` を実行して URL をコピーし、シークレットウィンドウに貼って開く。ログインの後に確認画面の title と本文が残るかと、ログインを挟むと上の上限が下がるかを記録する
+  - 結果が出たら、`README.md` の「未確認」を外すか書き直し、/new の例の `M`（6000）を直す。
 
 ## 段階1 雛形とローカルモード
 
@@ -117,6 +123,7 @@ AIには権限がなく、人がやる必要があること。上から順にや
   - URL の長さの上限と、Access のログインを挟んだときにクエリが残るかは未確認。次の README のタスクで、人が長い本文のブックマークレットで確かめる。
   - 保存の前に本人の確認（内容を見せて「保存」を押す）を挟む。リンクを踏むだけで任意の本文が保存されて表示されると、消毒をしていない表示（`DECISIONS.md` 2026-09-27「marked と mermaid を入れる」）と合わせて、細工したリンクから知識庫を読み書きされる。
 - [ ] `README.md` にブックマークレットの例と、Cloudflare側の設定手順を書く。完了条件: 人が読んで手順どおりに設定できる
+  - README は書いた。完了条件は人の確認なので、チェックは人待ちの README の項目が済んでから入れる。3つのブックマークレットは Node.js で生成される URL と本文を確かめ、ローカルモードで確認画面が出るところまで見た（保存は押していない）。
 
 ## 完成後
 
