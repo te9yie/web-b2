@@ -10,7 +10,7 @@ import { SAVE_DELAY, Saver } from "./saver";
 import { DEFAULT_SETTINGS, type Settings } from "./settings";
 import { ApiSource } from "./source";
 import { type FileStore, IdbStore, MemoryStore } from "./store";
-import { beginRender, currentEditingPath, escapeHtml, isEditing, leavePage, showAll, showPage, stale, statusText } from "./view";
+import { beginRender, currentEditingPath, escapeHtml, isEditing, leavePage, markSynced, setPageDir, showAll, showPage, stale, statusText } from "./view";
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
 app.innerHTML = `<header id="top"><nav id="links"></nav><input id="q" type="search" placeholder="検索" autocomplete="off" aria-label="検索"><span id="save-note"></span></header><main id="view"><p id="status">読み込み中</p></main>`;
@@ -91,6 +91,7 @@ async function start(): Promise<void> {
   };
   const scripting = new Scripting(kb);
   const source = new ApiSource();
+  setPageDir(() => source.dir());
   // 保存。結果はヘッダーの右端に出す（失敗したときだけ文が残る）
   const saveNote = document.querySelector<HTMLElement>("#save-note")!;
   const saver = new Saver(kb, source, today, SAVE_DELAY, (result) => {
@@ -204,6 +205,8 @@ async function start(): Promise<void> {
     const result = await kb.sync(source);
     note = `${result.fetched.length}件を読み直し`;
     changed = result.fetched.length + result.removed.length > 0;
+    // 索引が最新になったので、まだないページから新しいページを作れる。差分を取れなかったときは（控えが古いので）作らせない
+    markSynced();
   } catch (e) {
     note = `差分を取れなかったので控えを表示: ${message(e)}`;
   }
@@ -216,6 +219,10 @@ async function start(): Promise<void> {
     settings = await loadSettings();
     applySettings(kb, settings);
     scripting.load(settings.script, settings.name);
+  }
+  // まだないページは、同期が済んだので「編集」を出すために描き直す
+  const missingPage = route.kind === "page" && kb.index.resolve(route.name) === null;
+  if (changed || missingPage) {
     // 編集中は描き直さない（下書きは残るので、次の表示で反映される）
     if (!isEditing()) render(route);
   } else if (route.kind === "all" && route.q === "") {

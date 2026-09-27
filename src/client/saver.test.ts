@@ -36,6 +36,9 @@ class FakeSource implements Source {
   readonly writes: { path: string; content: string; sha: string | null; message: string; keepalive?: boolean }[] = [];
   fail: string | null = null;
   constructor(readonly files: Map<string, StoredFile>) {}
+  async dir() {
+    return "notes";
+  }
   async list() {
     return [...this.files.values()].map(({ path, sha }) => ({ path, sha }));
   }

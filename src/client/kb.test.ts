@@ -19,6 +19,10 @@ class FakeSource implements Source {
     return { ...f };
   }
 
+  async dir() {
+    return "notes";
+  }
+
   async write(): Promise<{ sha: string }> {
     throw new Error("このテストでは書かない");
   }
@@ -269,6 +273,7 @@ describe("Kb.open と sync", () => {
     let max = 0;
     const source: Source = {
       write: noWrite,
+      dir: async () => "notes",
       list: async () => files.map(({ path, sha }) => ({ path, sha })),
       read: async (path) => {
         inFlight++;
@@ -339,6 +344,7 @@ describe("Kb.open と sync", () => {
   it("控えの鍵は取り込み元が返した path ではなく要求した path", async () => {
     const source: Source = {
       write: noWrite,
+      dir: async () => "notes",
       list: async () => [{ path: "notes/a.md", sha: "s" }],
       read: async () => ({ path: "./notes/a.md", sha: "s", content: "# A" }),
     };

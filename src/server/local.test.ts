@@ -42,6 +42,8 @@ describe("GET /api/pages", () => {
     const { pages } = (await res.json()) as { pages: { path: string; sha: string }[] };
     const paths = pages.map((p) => p.path);
     expect(paths).toHaveLength(16);
+    // 新しいページの置き場（KB_DIR）も返す
+    expect(((await (await call("/api/pages")).json()) as { dir: string }).dir).toBe("notes");
     expect(paths[0]).toBe("notes/2026-01-05-settings.md");
     expect(paths).toContain("notes/2026-01-26-143210.md");
     expect(paths).not.toContain("notes/img/dot.png");
