@@ -2,6 +2,7 @@
 import type { Kb } from "./kb";
 import type { PageMeta } from "./page";
 import { escapeHtml, pageUrl, renderMarkdown } from "./render";
+import type { Scripting } from "./scripting";
 import type { SearchResult } from "./search";
 
 export { escapeHtml };
@@ -35,7 +36,8 @@ async function drawMermaid(root: HTMLElement, seq: number): Promise<void> {
   }
 }
 
-export async function showPage(kb: Kb, name: string, root: HTMLElement, seq: number): Promise<void> {
+// ページの表示。本文はマクロを展開してから HTML にする（ファイルは書いたまま）
+export async function showPage(kb: Kb, scripting: Scripting, name: string, root: HTMLElement, seq: number): Promise<void> {
   const page = await kb.page(name);
   if (stale(seq)) return;
   const exists = (ref: string) => kb.index.resolve(ref) !== null;
@@ -48,10 +50,13 @@ export async function showPage(kb: Kb, name: string, root: HTMLElement, seq: num
     return;
   }
 
+  const body = await scripting.expand(page.body, { name: page.name, stack: [page.name] });
+  if (stale(seq)) return;
+
   document.title = `${page.title} - web-b2`;
   // H1 は本文の中にあるので、ないときだけ name を見出しにする
   const heading = page.h1 === null ? `<h1 class="from-name">${escapeHtml(page.name)}</h1>` : "";
-  const html = renderMarkdown(page.body, { pagePath: page.path, exists });
+  const html = renderMarkdown(body, { pagePath: page.path, exists });
   root.innerHTML = `<article class="page">${heading}<div class="body">${html}</div></article>`;
 
   // 作成日・更新日は見出しの直後に置く。見出しがなければ本文の前

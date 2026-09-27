@@ -111,15 +111,18 @@ Workerとローカルモードで同じ形にする。`<path>` はリポジト�
 
 | 名前 | 中身 |
 | --- | --- |
-| `kb.macro(name, fn)` | マクロを登録する。`fn(引数の文字列, ctx)` はMarkdownの文字列を返す。`ctx.name` は表示中のページ名、`ctx.stack` は展開中のページ名の配列 |
+| `kb.macro(name, fn)` | マクロを登録する。`fn(引数の文字列, ctx)` はMarkdownの文字列か、そのPromiseを返す。`ctx.name` は表示中のページ名、`ctx.stack` は展開中のページ名の配列 |
 | `kb.command(name, fn)` | エディタのコマンドを登録する。`fn(editor)` を受け取る。呼び出し方（右クリック、`/名前`）は後で決める |
-| `kb.pages` | `name` → ページ の Map。読むだけ |
-| `kb.resolve(ref)` | `[[ ]]` 付きでもよい。`[name, page]` か `null` |
+| `kb.pages` | `name` → ページ の Map。読むだけ。ページは本文なし（`name`・`title`・`created`・`updated`・`links`・`path`・`sha`） |
+| `kb.resolve(ref)` | `[[ ]]` 付きでもよい。`[name, page]` か `null`。ページは本文なし |
+| `kb.page(ref)` | 本文つきのページの Promise。なければ `null`。そのページの分だけ控えから読む |
 | `kb.section(md, heading)` | その見出しの次の行から、同じかより浅い見出しの手前まで。見出しの行は含めない |
 | `kb.codeBlock(md, name)` | 名前付きコードブロックの中身。同名が複数あれば連結 |
-| `kb.expand(md, ctx)` | マクロを展開する |
+| `kb.expand(md, ctx)` | マクロを展開する。Promise |
 | `kb.wikilink(name, page)` | `[[name|title]]` の形の文字列 |
 | `kb.today()` | ブラウザのタイムゾーンでの `YYYY-MM-DD` |
+
+マクロの関数が例外を投げたら、その `{{ }}` の場所に名前と理由を出し、残りは展開する。
 
 ## settings ページ
 

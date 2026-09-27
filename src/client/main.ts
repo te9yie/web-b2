@@ -3,6 +3,8 @@ import { Kb } from "./kb";
 import { pageUrl } from "./render";
 import { type Route, startRouter } from "./router";
 import { search } from "./search";
+import { firstLink } from "./md";
+import { Scripting } from "./scripting";
 import { DEFAULT_SETTINGS, type Settings } from "./settings";
 import { ApiSource } from "./source";
 import { type FileStore, IdbStore, MemoryStore } from "./store";
@@ -33,10 +35,12 @@ function applySettings(kb: Kb, settings: Settings): void {
   style.textContent = settings.css ?? "";
 }
 
-// `/` で開くページ。settings の「トップ」の最初の [[リンク]]。なければ今日の日付ページ。
-// マクロの展開は段階4なので、{{ }} が残っていれば指定なしとみなす
-function homeName(settings: Settings): string {
-  return settings.top !== null && !settings.top.includes("{{") ? settings.top : today();
+// `/` で開くページ。settings の「トップ」をマクロで展開してからの最初の [[リンク]]。なければ今日の日付ページ
+async function homeName(settings: Settings, scripting: Scripting): Promise<string> {
+  if (settings.topSection === null) return today();
+  const name = settings.name ?? "";
+  const expanded = await scripting.expand(settings.topSection, { name, stack: [name] });
+  return firstLink(expanded) ?? today();
 }
 
 function message(e: unknown): string {
@@ -83,8 +87,10 @@ async function start(): Promise<void> {
       return DEFAULT_SETTINGS;
     }
   };
+  const scripting = new Scripting(kb);
   let settings = await loadSettings();
   applySettings(kb, settings);
+  scripting.load(settings.script);
 
   // 差分を取る前の一覧には、控えの状態を添える。取り終えたら結果に差し替える
   let note = kb.rebuilt ? "控えから解析し直した。差分を確認中" : "差分を確認中";
@@ -112,16 +118,18 @@ async function start(): Promise<void> {
     if (document.activeElement !== q) q.value = query;
     switch (route.kind) {
       case "page":
-        void showPage(kb, route.name, view, seq);
+        void showPage(kb, scripting, route.name, view, seq);
         break;
-      case "home": {
+      case "home":
         // URL を /p/<name> に差し替えて描く（履歴には / を残さない）。
         // 同じページから「今日」を押したときは、同じ URL を重ねずに戻る
-        const target = pageUrl(homeName(settings));
-        if (router.previous() === target) history.back();
-        else router.replace(target);
+        void homeName(settings, scripting).then((name) => {
+          if (stale(seq)) return;
+          const target = pageUrl(name);
+          if (router.previous() === target) history.back();
+          else router.replace(target);
+        });
         break;
-      }
       case "all":
         showResults(query, seq);
         break;
@@ -184,6 +192,7 @@ async function start(): Promise<void> {
     // settings が変わっていることもあるので読み直す
     settings = await loadSettings();
     applySettings(kb, settings);
+    scripting.load(settings.script);
     render(route);
   } else if (route.kind === "all" && route.q === "") {
     const status = document.querySelector("#status");
