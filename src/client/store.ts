@@ -3,6 +3,8 @@
 // 解析した結果ではなく中身そのものを置くのは、編集のときに front matter を含む元の文字列が要るのと、
 // 解析の直し方が変わっても取り直さずに済むようにするため。
 
+import type { PageMeta } from "./page";
+
 export interface StoredFile {
   // リポジトリのルートからのパス
   path: string;
@@ -11,21 +13,92 @@ export interface StoredFile {
   content: string;
 }
 
+// 全ページの解析結果。起動時はこれだけを読んで索引を作る（DECISIONS.md 2026-09-27「起動時は解析結果だけを読む」）。
+// version は解析の版で、違えばファイルの中身から全件を解析し直す。
+// links は量が多い（1万ページで20万本）ので別に置き、getIndex が返す pages の links は空。getLinks で pages と同じ順に読む。
+// stamp は putIndex のたびに変わる印で、両方に同じ値が入る。別々に読むあいだに別のタブが書き換えると値が違うので、それで見分ける
+export interface StoredIndex {
+  version: number;
+  stamp: string;
+  pages: PageMeta[];
+}
+
+export interface StoredLinks {
+  stamp: string;
+  links: string[][];
+}
+
 export interface FileStore {
   all(): Promise<StoredFile[]>;
+  get(path: string): Promise<StoredFile | undefined>;
   put(files: StoredFile[]): Promise<void>;
   remove(paths: string[]): Promise<void>;
+  getIndex(): Promise<StoredIndex | null>;
+  getLinks(): Promise<StoredLinks | null>;
+  // pages と links の両方を、新しい stamp を付けて書く
+  putIndex(index: { version: number; pages: PageMeta[] }): Promise<void>;
   // 最後に見たコミットなど、ファイル以外の小さな値
   getMeta(key: string): Promise<string | null>;
   setMeta(key: string, value: string): Promise<void>;
 }
 
+// 控えの JSON を読む。形が違えば null にして、呼ぶ側に作り直させる
+function parseJson(json: unknown): unknown {
+  if (typeof json !== "string") return null;
+  try {
+    return JSON.parse(json);
+  } catch {
+    return null;
+  }
+}
+
+function parseIndex(json: unknown): StoredIndex | null {
+  const v = parseJson(json) as Partial<StoredIndex> | null;
+  if (typeof v !== "object" || v === null) return null;
+  if (typeof v.version !== "number" || typeof v.stamp !== "string" || !Array.isArray(v.pages)) return null;
+  return { version: v.version, stamp: v.stamp, pages: v.pages };
+}
+
+function parseLinks(json: unknown): StoredLinks | null {
+  const v = parseJson(json) as Partial<StoredLinks> | null;
+  if (typeof v !== "object" || v === null) return null;
+  return typeof v.stamp === "string" && Array.isArray(v.links) ? { stamp: v.stamp, links: v.links } : null;
+}
+
+// 保存する形。links を抜いた pages と、同じ順の links。両方に同じ stamp を入れる
+function serializeIndex(index: { version: number; pages: PageMeta[] }): { pages: string; links: string } {
+  const stamp = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  const pages = index.pages.map(({ links: _links, ...rest }) => ({ ...rest, links: [] }));
+  return {
+    pages: JSON.stringify({ version: index.version, stamp, pages }),
+    links: JSON.stringify({ stamp, links: index.pages.map((p) => p.links) }),
+  };
+}
+
 export class MemoryStore implements FileStore {
   private readonly files = new Map<string, StoredFile>();
   private readonly meta = new Map<string, string>();
+  private index: { pages: string; links: string } | null = null;
 
   async all(): Promise<StoredFile[]> {
     return [...this.files.values()];
+  }
+
+  async get(path: string): Promise<StoredFile | undefined> {
+    const f = this.files.get(path);
+    return f && { ...f };
+  }
+
+  async getIndex(): Promise<StoredIndex | null> {
+    return parseIndex(this.index?.pages);
+  }
+
+  async getLinks(): Promise<StoredLinks | null> {
+    return parseLinks(this.index?.links);
+  }
+
+  async putIndex(index: { version: number; pages: PageMeta[] }): Promise<void> {
+    this.index = serializeIndex(index);
   }
 
   async put(files: StoredFile[]): Promise<void> {
@@ -47,6 +120,9 @@ export class MemoryStore implements FileStore {
 
 const FILES = "files";
 const META = "meta";
+// META の中で解析結果のレコードを置く鍵。links は別の鍵
+const INDEX_KEY = "index";
+const LINKS_KEY = "index:links";
 // object store の構成を変えるときに上げる
 const VERSION = 1;
 
@@ -88,6 +164,28 @@ export class IdbStore implements FileStore {
 
   all(): Promise<StoredFile[]> {
     return request(this.db.transaction(FILES, "readonly").objectStore(FILES).getAll() as IDBRequest<StoredFile[]>);
+  }
+
+  get(path: string): Promise<StoredFile | undefined> {
+    return request(this.db.transaction(FILES, "readonly").objectStore(FILES).get(path) as IDBRequest<StoredFile | undefined>);
+  }
+
+  // レコードは JSON の文字列で置く（docs/perf.md）
+  async getIndex(): Promise<StoredIndex | null> {
+    return parseIndex(await request(this.db.transaction(META, "readonly").objectStore(META).get(INDEX_KEY)));
+  }
+
+  async getLinks(): Promise<StoredLinks | null> {
+    return parseLinks(await request(this.db.transaction(META, "readonly").objectStore(META).get(LINKS_KEY)));
+  }
+
+  // 二つを同じトランザクションで書き、片方だけ新しくならないようにする
+  async putIndex(index: { version: number; pages: PageMeta[] }): Promise<void> {
+    const { pages, links } = serializeIndex(index);
+    const tx = this.db.transaction(META, "readwrite");
+    tx.objectStore(META).put(pages, INDEX_KEY);
+    tx.objectStore(META).put(links, LINKS_KEY);
+    await complete(tx);
   }
 
   async put(files: StoredFile[]): Promise<void> {
