@@ -99,9 +99,9 @@ AIには権限がなく、人がやる必要があること。上から順にや
 
 ## 段階6 GitHub中継
 
-- [ ] Workerの `/api/*` をGitHub Contents API・tarball・compare で実装する。完了条件: GitHub APIをモックした単体テストが通る
-  - 着手前に決めること。差分の取り方を、`SPEC.md` どおり最後に見たコミットからの compare にするか、いまの `sync` と同じ「全件の一覧の `sha` を控えと比べる」（trees API）にするか。tarball のエントリには blob の `sha` がないので、一覧と tarball を同じコミットに固定する（`GET /api/pages` にコミットの `sha` を含めるなど）か、ブラウザで `blob <バイト数>\0` 付きの SHA-1 を計算する。`Source` に一括読み（tarball）の口が要る。決めたら `DECISIONS.md` に書く。
-  - `/api/files/<path>` と `/api/pages/<path>` で、ドットで始まる区切り（`.git`、`.github` など）を含むパスは400にする。ローカルモード（`src/server/local.ts`）にも同じ制限を入れ、両方のテストで確かめる。
+- [x] Workerの `/api/*` をGitHub Contents API・tarball・compare で実装する。完了条件: GitHub APIをモックした単体テストが通る
+  - compare は使わず、Trees API の一覧の `sha` を控えと比べる（`DECISIONS.md`）。`src/worker/github.ts`（GitHub の包み）と `api.ts`（`/api/pages`・`/api/pages/<path>`・`/api/files/<path>`・`/api/archive`）。GitHub の 409/422/404 は、いまの中身を GET して `{ error, current }` の 409 に写す。正しい sha でも 409 なら一度だけ試し直す。ドットで始まる区切りは 400（ローカルモードも。`src/shared/api-path.ts` で共有）。
+  - `GET /api/pages` に `head`、`/api/archive` に `x-head`（ブランチの先頭のコミット）。次のタスクで、ブラウザが tarball を展開して `blobShaOf` で sha を計算し、一覧と突き合わせる。
 - [ ] ブラウザの初回読み込み（tarball）と差分更新（compare）をWorker経由でつなぐ。完了条件: モックで、初回は全件、2回目は差分だけ読むテストが通る
 - [ ] 本番へデプロイして、Accessを通って自分のknowledgeを開けることを確かめる。完了条件: 人が確認する（ここで止まって報告する）
 
