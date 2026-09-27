@@ -14,6 +14,7 @@ AIには権限がなく、人がやる必要があること。上から順にや
 - [x] Workerの「Access」タブで、Worker Access が「すべてのトラフィック」（本番とプレビュー）、ポリシーが Cloudflare account members の許可になっていることを確かめる
 - [x] 段階1でデプロイが成功したら、「ドメイン」タブの Worker URL で、プロダクション（`web-b2.<サブドメイン>.workers.dev`）のスイッチをオンにする。PRごとのプレビューを見たければプレビューもオンにする（どちらもAccessの対象）
 - [x] シークレットウィンドウで `https://web-b2.<サブドメイン>.workers.dev/` を開き、Cloudflareのログイン画面が出ることを確かめる。出なければトークンを登録せずに止める
+- [ ] Workerの雛形のPRのプレビュー（またはマージ後の本番）で、ログインしてから `/api/whoami` を開き、表示された `access`・`jwtHeader`・`cookie` の true/false を `TODO.md` か会話で伝える。値は出ず、有無だけが出る
 - [ ] GitHubの Settings > Developer settings > Personal access tokens > Fine-grained tokens で、Repository access を知識庫リポジトリだけ、Repository permissions を Contents: Read and write だけにしたトークンを作る。期限の日を控える
 - [ ] Workerの Settings > Variables and Secrets で、`GITHUB_TOKEN` と `KB_REPO`（`owner/repo`）を Secret として登録する。公開リポジトリの wrangler 設定には書かない
 
@@ -24,7 +25,10 @@ AIには権限がなく、人がやる必要があること。上から順にや
 - [x] ローカルモードのサーバー（Node.js）を作る。`KB_ROOT` の下の `KB_DIR` から `.md` を列挙・取得・書き込み・添付ファイル取得する `/api/*` を返す。完了条件: `fixtures/` を `KB_ROOT` にして、一覧・取得・書き込みの単体テストが通る
   - `src/server/local.ts` がAPI本体で、Viteのプラグイン（`src/server/vite-plugin.ts`）で `dev:local` の開発サーバーに載る。`KB_ROOT` の既定は `fixtures`。`PUT` は `sha` を受け取るが、まだ比べていない（競合の検出のタスクで足す）。
   - Windowsで `core.autocrlf=true` だと `fixtures/` の作業ツリーがCRLFになり、ローカルモードはCRLFのまま返す。Markdownの解析はCRLFでも同じ結果になるようにする。
-- [ ] Workerの雛形を作る。静的ファイルと `/api/*` の振り分け、`ctx.access` がないリクエストを401にする（テストでは差し替えられるようにする）。完了条件: `wrangler dev` で `/` が200、`ctx.access` なしの `/api/pages` が401
+- [x] Workerの雛形を作る。静的ファイルと `/api/*` の振り分け、`ctx.access` がないリクエストを401にする（テストでは差し替えられるようにする）。完了条件: `wrangler dev` で `/` が200、`ctx.access` なしの `/api/pages` が401
+  - `src/worker/index.ts`。`wrangler.jsonc` の `run_worker_first` で `/api/*` だけがWorkerに来る。テストは `handle` に `ctx` を渡して差し替える。`wrangler dev` は `dist/` を配るので先に `npm run build` が要る。
+  - Cloudflareのドキュメント（workers/configuration/cloudflare-access）に、静的ファイルを持つWorkerには `ctx.access` が渡らないとある。本番で何が届くかを見るため、有無だけを返す `/api/whoami` を入れた（認証より前に置いている）。
+- [ ] 人待ちの `/api/whoami` の結果で、Workerでの認証の確かめ方を決める。`Cf-Access-Jwt-Assertion` が届いていれば、WorkerでJWTを検証する（WebCrypto、ライブラリは足さない）。先に `DECISIONS.md` と `SPEC.md` を直し、`/api/whoami` を消す。完了条件: 決めた方法で、認証なしの `/api/pages` が401になる単体テストが通る
 
 ## 段階2 ブラウザ側の索引
 
