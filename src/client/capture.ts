@@ -336,7 +336,8 @@ export async function showCapture(deps: CaptureDeps, route: CaptureRoute, root: 
       if (p.name !== undefined) targetEl.append("（", pageLink(p.name, kb.index.get(p.name)?.title ?? p.name), "）");
       if (p.heading && !editing) {
         editing = true;
-        titleInput.value = r.kind === "new" ? r.title : r.page;
+        // 行き先と同じく空白と改行を1つの空白にまとめて入れる（input は改行を消すので、そのままだと語が詰まる）
+        titleInput.value = captureTitle(r.kind === "new" ? r.title : r.page) ?? "";
         titleLabel.hidden = false;
         titleInput.addEventListener("input", () => {
           const v = titleInput.value;
