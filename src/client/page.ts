@@ -1,7 +1,8 @@
 // Markdownの解析。1ファイルの中身から、SPEC.md「ページのモデル」の各項目を取り出す。
 // 行末がLFでもCRLFでも同じ結果になるように、行の区切りは /\r?\n/ で扱う。
 
-export interface Page {
+// ページの本文以外。索引はこれだけで作れるので、起動時は控えからこの形だけを読む
+export interface PageMeta {
   // リポジトリのルートからのパス（KB_DIR を含む）
   path: string;
   // 拡張子を除いたファイル名。URLと [[リンク]] の解決に使う
@@ -10,8 +11,6 @@ export interface Page {
   title: string;
   // `# ` 行の中身。一覧でH1のないページを見分けるために title と分けて持つ
   h1: string | null;
-  // front matterを除いた本文
-  body: string;
   // front matterの created。なければファイル名の先頭の YYYY-MM-DD
   created: string | null;
   // front matterの updated
@@ -20,6 +19,17 @@ export interface Page {
   links: string[];
   // GitHubのblobのSHA。競合の検出に使う
   sha: string | null;
+}
+
+export interface Page extends PageMeta {
+  // front matterを除いた本文
+  body: string;
+}
+
+// 本文を落として PageMeta にする。控えの解析結果のレコードに置く形
+export function toMeta(page: Page): PageMeta {
+  const { body: _body, ...meta } = page;
+  return meta;
 }
 
 export interface FrontMatter {

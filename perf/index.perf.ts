@@ -48,7 +48,7 @@ describe("1万ページの合成データ", () => {
     bench("parsePage 全件", 5, () => {
       pages = files.map((f) => parsePage({ path: f.path, content: f.content, sha: "x" }));
     });
-    let index = new KbIndex();
+    let index = new KbIndex<Page>();
     bench("KbIndex 構築", 5, () => {
       index = new KbIndex(pages);
     });

@@ -2,7 +2,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import { KbIndex, byUpdatedDesc, refName } from "./kb-index";
-import { type Page, parsePage } from "./page";
+import { type Page, type PageMeta, parsePage } from "./page";
 
 async function loadFixtures(): Promise<Page[]> {
   const dir = join("fixtures", "notes");
@@ -27,7 +27,7 @@ function page(name: string, o: { h1?: string; links?: string[]; updated?: string
   };
 }
 
-const names = (pages: Page[]) => pages.map((p) => p.name);
+const names = (pages: PageMeta[]) => pages.map((p) => p.name);
 
 describe("KbIndex: fixtures/notes", () => {
   let index: KbIndex;
@@ -173,6 +173,23 @@ describe("KbIndex: 解決の順番と更新", () => {
     expect(index.resolve("a")).toBeNull();
     expect(index.resolve("A")).toBeNull();
     expect(index.backlinks("x")).toEqual([]);
+  });
+
+  it("逆引きは最初に要るときに作り、その前後の set/remove を反映する", () => {
+    const index = new KbIndex([page("a", { links: ["x"] })]);
+    index.set(page("b", { links: ["x"] }));
+    expect(names(index.backlinks("x")).sort()).toEqual(["a", "b"]);
+    index.set(page("c", { links: ["x"] }));
+    index.remove("a");
+    expect(names(index.backlinks("x")).sort()).toEqual(["b", "c"]);
+    index.prepareBacklinks();
+    expect(names(index.backlinks("x")).sort()).toEqual(["b", "c"]);
+  });
+
+  it("本文のない PageMeta でも入れられる", () => {
+    const { body: _body, ...meta } = page("a", { h1: "A" });
+    const index = new KbIndex([meta]);
+    expect(index.resolve("A")?.[0]).toBe("a");
   });
 
   it("pages は読むだけの Map として渡せる", () => {
