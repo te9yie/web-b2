@@ -6,8 +6,9 @@
     <title>web-b2</title>
     <style>
       body { margin: 0 auto; padding: 0 16px; max-width: 48rem; font-family: system-ui, sans-serif; line-height: 1.6; }
-      #top { position: sticky; top: 0; z-index: 1; padding: 8px 0; background: #fff; border-bottom: 1px solid #ddd; }
-      #q { width: 100%; box-sizing: border-box; font-size: 1rem; padding: 6px 8px; }
+      #top { position: sticky; top: 0; z-index: 1; display: flex; gap: 12px; align-items: center; padding: 8px 0; background: #fff; border-bottom: 1px solid #ddd; }
+      #links { display: flex; gap: 12px; white-space: nowrap; overflow-x: auto; max-width: 50%; }
+      #q { flex: 1; min-width: 0; box-sizing: border-box; font-size: 1rem; padding: 6px 8px; }
       a.missing { border-bottom: 1px dashed currentColor; text-decoration: none; opacity: 0.75; }
       .dates { color: #666; font-size: 0.85em; }
       img { max-width: 100%; }

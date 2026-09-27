@@ -6,6 +6,7 @@
 
 import { KbIndex, type TwoHop } from "./kb-index";
 import { type Page, type PageMeta, parsePage, splitFrontMatter, toMeta } from "./page";
+import { SETTINGS_NAME, type Settings, parseSettings } from "./settings";
 import { NotFoundError, type Source } from "./source";
 import type { FileStore, StoredFile } from "./store";
 
@@ -233,6 +234,11 @@ export class Kb {
     if (!this.bodyMap) return;
     if (body === null) this.bodyMap.delete(path);
     else this.bodyMap.set(path, body);
+  }
+
+  // settings ページ（SPEC.md「settings ページ」）。name か H1 が settings のページを読む。なければ既定の値
+  async settings(): Promise<Settings> {
+    return parseSettings(await this.page(SETTINGS_NAME));
   }
 
   // 本文つきのページ。ref は name でも title でも [[ ]] 付きでもよい。表示のときに、そのページの分だけ控えから読む

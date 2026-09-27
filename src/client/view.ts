@@ -1,4 +1,4 @@
-// 画面の描画。ページ（/p/<name>）と、いまは仮の一覧（/）
+// 画面の描画。ページ（/p/<name>）と、一覧・検索結果（/all）
 import type { Kb } from "./kb";
 import type { PageMeta } from "./page";
 import { escapeHtml, pageUrl, renderMarkdown } from "./render";

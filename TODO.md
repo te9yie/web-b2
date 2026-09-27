@@ -67,7 +67,9 @@ AIには権限がなく、人がやる必要があること。上から順にや
 - [x] 検索欄（固定、AND、IME対応）と `/all`。完了条件: e2eで検索語を入力すると結果が差し替わり、`/all?q=` に残る
   - `src/client/search.ts` の `search(pages, query, bodyOf)`。本文は `kb.bodies()`（小文字にした全ページの本文。最初の検索で控えから全件読み、差分で更新）。読み終わるまではタイトルだけで探し、読めたら描き直す。検索欄は `main.ts` にあり、`/all` にいるあいだは `replaceState` で履歴を積まない。IME は `compositionstart`/`compositionend` と `isComposing` で見る。
   - 1万ページの全文の走査は170〜200ms（`docs/perf.md`）で目標の100msを超える。体感で気になったら「完成後」の trigram 索引を前に出す。
-- [ ] `settings` ページの読み取り（トップ、ヘッダー、`style.css`）と `/` の振り分け。完了条件: e2eで `/` が今日の日付ページになり、ヘッダーのリンクが `settings` の内容になる
+- [x] `settings` ページの読み取り（トップ、ヘッダー、`style.css`）と `/` の振り分け。完了条件: e2eで `/` が今日の日付ページになり、ヘッダーのリンクが `settings` の内容になる
+  - `src/client/settings.ts`（`parseSettings`）と `md.ts`（`section`・`codeBlock`・`listItems`。段階4の `kb.section`/`kb.codeBlock` の本体）。`kb.settings()` は `resolve("settings")` で name か H1 が settings のページを読む。`/` は `router.replace` で `/p/<name>` に差し替える。「トップ」に `{{ }}` が残っていれば（マクロは段階4）指定なしとみなして今日の日付ページにする。差分で何か変わったら settings を読み直す。
+  - `/` が一覧でなくなったので、e2e の smoke と sync、`perf/startup.perf.spec.ts` は `/all` を開く。
 
 ## 段階4 マクロ
 
