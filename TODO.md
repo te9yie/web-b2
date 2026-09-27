@@ -1,0 +1,67 @@
+# TODO
+
+上から順に一つずつ進める。各タスクの「完了条件」が通ったらチェックを入れる。段階の途中で設計を変えたくなったら `DECISIONS.md` に書いてから。
+
+## 一旦の完成とは
+
+Cloudflare上で、Accessを通ってログインすると今日の日付ページが開き、閲覧・検索・バックリンク・2 hop linkが動き、ページをその場で編集して保存するとGitHubにコミットされ、`settings` の `script.js` のマクロがブラウザで展開され、`/new` と `/append` でブックマークレットから取り込める。ここまでを「一旦の完成」とする。Androidの共有メニュー（`share_target`）と `#要約待ち` 系はその後。
+
+## 人待ち
+
+AIには権限がなく、人がやる必要があること。終わったらチェックを入れる。
+
+- [ ] Cloudflareで Workers Builds にこのリポジトリをつなぐ（本番は `main`）
+- [ ] Cloudflare Access のアプリケーションを作り、IdPにGitHubを追加し、自分のアカウントのメールだけ許可するポリシーにする。AUDタグと team domain を `wrangler.toml` の vars（`ACCESS_AUD`、`ACCESS_TEAM_DOMAIN`）に書く
+- [ ] 知識庫リポジトリの Contents 読み書きだけに絞った fine-grained token を作り、`wrangler secret put GITHUB_TOKEN` で登録する
+- [ ] `KB_REPO` を `wrangler.toml` の vars に書く（値は公開されてよいか確認してから。よくなければ secret にする）
+- [ ] 手元で `wrangler login`
+
+## 段階1 雛形とローカルモード
+
+- [ ] `package.json`、TypeScript、Vite、vitest、Playwright、wrangler を入れ、`npm test`・`npm run e2e`・`npm run dev:local`・`npm run build` のスクリプトを用意する。CI（GitHub Actions）で `npm test` と `npm run e2e` を回す。完了条件: `npm test` と `npm run e2e` がそれぞれ1件以上のテストで通り、Actionsが緑
+- [ ] ローカルモードのサーバー（Node.js）を作る。`KB_ROOT` のディレクトリから `KB_DIRS` の `.md` を列挙・取得・書き込み・添付ファイル取得する `/api/*` を返す。完了条件: `fixtures/` を `KB_ROOT` にして、一覧・取得・書き込みの単体テストが通る
+- [ ] Workerの雛形を作る。静的ファイルと `/api/*` の振り分け、Access JWT の検証（テストでは検証を差し替えられるようにする）。完了条件: `wrangler dev` で `/` が200、JWTなしの `/api/pages` が401
+
+## 段階2 ブラウザ側の索引
+
+- [ ] Markdownの解析（front matter、H1、リンク、タグ、コードブロックの除外）を実装する。完了条件: `fixtures/` の全ページで期待どおりの `title`・`links` になる単体テストが通る
+- [ ] 索引（`name`→ページ、`title`→`name`、リンク先→リンク元）と、リンクの解決（`name`→`title`→まだないページ）を実装する。完了条件: 解決順・バックリンク・2 hop linkの単体テストが通る
+- [ ] IndexedDBへの保存と、変わったファイルだけ読み直す仕組みを作る。完了条件: 2回目の読み込みで全ファイルを取り直さない単体テストが通る
+- [ ] 1万ページの合成データで計測し、`SPEC.md` の目標に収まることを確かめる。完了条件: 計測結果を `docs/perf.md` に書く
+
+## 段階3 表示と検索
+
+- [ ] `/p/<name>` でページを表示する。marked、Mermaid、`[[リンク]]`、`#タグ`、作成日・更新日、まだないページ、`.md` リンクの転送。完了条件: e2eで見本ページが表示され、リンクをクリックして遷移できる
+- [ ] バックリンクと2 hop linkをページ末尾に出す。完了条件: e2eで見本ページの末尾に期待どおりのリンクが出る
+- [ ] 検索欄（固定、AND、IME対応）と `/all`。完了条件: e2eで検索語を入力すると結果が差し替わり、`/all?q=` に残る
+- [ ] `settings` ページの読み取り（トップ、ヘッダー、`style.css`）と `/` の振り分け。完了条件: e2eで `/` が今日の日付ページになり、ヘッダーのリンクが `settings` の内容になる
+
+## 段階4 マクロ
+
+- [ ] `{{名前 引数}}` の展開（コード内は除外、未登録は残す）と、`settings` の `script.js` のブラウザでの実行、`kb` API。完了条件: `fixtures/` の `settings` に定義したマクロが表示で展開される単体テストとe2eが通る
+- [ ] スクリプトの構文エラーを `settings` ページの先頭に出す。完了条件: e2eで壊れたスクリプトを保存するとエラーが表示される
+
+## 段階5 編集と保存
+
+- [ ] CodeMirror 6でページをその場で編集する。完了条件: e2eで本文を書き換えると表示に反映される
+- [ ] 保存のタイミング（入力停止・ページ移動・タブを閉じる）と、ローカルモードでの書き込み。`updated` の更新。完了条件: e2eで編集後にファイルが変わっている
+- [ ] 新しいページの作成（ファイル名は時刻、`KB_WRITE_DIR`）。完了条件: e2eでまだないページに書き込むとファイルができる
+- [ ] 競合の検出（SHA不一致で上書きしない）。完了条件: 単体テストで、裏で変えたファイルへの保存が拒否され、両方の内容が返る
+
+## 段階6 GitHub中継
+
+- [ ] Workerの `/api/*` をGitHub Contents API・tarball・compare で実装する。完了条件: GitHub APIをモックした単体テストが通る
+- [ ] ブラウザの初回読み込み（tarball）と差分更新（compare）をWorker経由でつなぐ。完了条件: モックで、初回は全件、2回目は差分だけ読むテストが通る
+- [ ] 本番へデプロイして、Accessを通って自分のknowledgeを開けることを確かめる。完了条件: 人が確認する（ここで止まって報告する）
+
+## 段階7 取り込み
+
+- [ ] `/new?title=&body=` と `/append?page=&body=`。完了条件: e2eで両方のURLからページが作られる・追記される
+- [ ] `README.md` にブックマークレットの例と、Cloudflare側の設定手順を書く。完了条件: 人が読んで手順どおりに設定できる
+
+## 完成後
+
+- [ ] PWAのマニフェストと `share_target`
+- [ ] `kb.command` の呼び出し方（右クリックか `/名前`）を決めて実装する
+- [ ] ページアイコン `[[名前.icon]]`
+- [ ] 全文検索が遅くなったらtrigram索引
