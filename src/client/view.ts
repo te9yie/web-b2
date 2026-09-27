@@ -1,7 +1,7 @@
 // 画面の描画。ページ（/p/<name>）と、一覧・検索結果（/all）
 import type { Kb } from "./kb";
 import { today } from "./date";
-import { draftForNewPage, getDraft, isDirty, openDraft, openNewDraft, updateDraft } from "./drafts";
+import { type Draft, draftForNewPage, getDraft, isDirty, openDraft, openNewDraft, updateDraft } from "./drafts";
 import { type Editor, createEditor } from "./editor";
 import { type Page, type PageMeta, parsePage } from "./page";
 import { escapeHtml, pageUrl, renderMarkdown } from "./render";
@@ -69,6 +69,35 @@ export function setPageDir(provider: () => Promise<string>): void {
   pageDir = provider;
 }
 
+// 競合の解決。main.ts が渡す（下書きの解決のあとに保存と描き直しを行う）
+let resolveConflictHook: (path: string, choice: "mine" | "theirs") => void = () => undefined;
+export function setConflictResolver(fn: (path: string, choice: "mine" | "theirs") => void): void {
+  resolveConflictHook = fn;
+}
+
+// 競合の表示（SPEC.md「編集と保存」）。相手の内容と、上書きかそろえるかの二つのボタン。本文には自分の下書きが出ている
+function conflictBox(conflict: NonNullable<Draft["conflict"]>, path: string): HTMLElement {
+  const box = document.createElement("section");
+  box.className = "conflict";
+  const gone = conflict.sha === null;
+  box.innerHTML = `<p>${gone ? "このページは別の場所で消されている。" : "このページは別の場所で変わっている。"}下に出ているのは自分の下書き。</p>${
+    gone ? "" : `<details><summary>相手の内容</summary><pre></pre></details>`
+  }<div class="choices"><button type="button" class="mine">自分の下書きで上書き</button><button type="button" class="theirs">${gone ? "下書きを捨てる" : "相手の内容にそろえる"}</button></div>`;
+  if (!gone) box.querySelector("pre")!.textContent = conflict.content;
+  box.querySelector(".mine")!.addEventListener("click", () => resolveConflictHook(path, "mine"));
+  box.querySelector(".theirs")!.addEventListener("click", () => resolveConflictHook(path, "theirs"));
+  return box;
+}
+
+// 編集中に競合が届いたとき、エディタを閉じずに競合の表示だけ差し込む（既にあれば差し替える）
+export function insertConflict(root: HTMLElement, path: string): void {
+  const draft = getDraft(path);
+  const tools = root.querySelector<HTMLElement>("article .tools");
+  if (!draft?.conflict || !tools) return;
+  root.querySelector("section.conflict")?.remove();
+  tools.before(conflictBox(draft.conflict, path));
+}
+
 // 起動後の差分の同期が一度済んだか。済むまでは索引が古い（初回は空）ので、「まだないページ」に「編集」を出さない
 // （既存のページを新しいページとして作ってしまわないように）
 let synced = false;
@@ -134,8 +163,9 @@ async function renderPage(kb: Kb, scripting: Scripting, name: string, root: HTML
       ? `<p class="script-error">script.js を実行できない: ${escapeHtml(scripting.error)}</p>`
       : "";
   const html = renderMarkdown(body, { pagePath: page.path, exists });
-  // 先頭はスクリプトのエラー、次に「編集」の道具、見出し、本文の順
+  // 先頭はスクリプトのエラー、次に競合、「編集」の道具、見出し、本文の順
   root.innerHTML = `<article class="page">${scriptError}<div class="tools"></div>${heading}<div class="body">${html}</div></article>`;
+  if (draft?.conflict) root.querySelector(".tools")!.before(conflictBox(draft.conflict, page.path));
 
   // 「編集」でその場をエディタにし、「表示」で下書きを解析して描き直す（SPEC.md「編集と保存」）
   const editButton = document.createElement("button");

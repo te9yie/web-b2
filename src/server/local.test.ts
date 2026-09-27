@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { cp, mkdtemp, readFile, rm } from "node:fs/promises";
+import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -79,13 +79,43 @@ describe("GET /api/pages/<path>", () => {
 });
 
 describe("PUT /api/pages/<path>", () => {
-  it("既存のページを書き換え、新しいSHAを返す", async () => {
+  it("既存のページを、いまの sha を添えて書き換え、新しいSHAを返す", async () => {
+    const { sha } = (await (await call("/api/pages/notes/2026-01-25.md")).json()) as { sha: string };
     const content = "---\ncreated: 2026-01-25\nupdated: 2026-01-26\n---\n\n# 2026-01-25\n\n書き換えた\n";
-    const res = await put("/api/pages/notes/2026-01-25.md", { content, sha: null });
+    const res = await put("/api/pages/notes/2026-01-25.md", { content, sha });
     expect(res.status).toBe(200);
     const saved = await readFile(join(root, "notes/2026-01-25.md"));
     expect(saved.toString("utf8")).toBe(content);
     expect(await res.json()).toEqual({ path: "notes/2026-01-25.md", sha: blobSha(saved) });
+  });
+
+  it("裏で変わったファイルへの保存は 409 で拒み、相手の内容を返し、ファイルは変えない", async () => {
+    const path = "notes/2026-01-25.md";
+    const { sha: mine } = (await (await call(`/api/pages/${path}`)).json()) as { sha: string };
+    // 別のツールが同じファイルを変えた
+    const theirs = "---\ncreated: 2026-01-25\nupdated: 2026-01-27\n---\n\n# 2026-01-25\n\n相手が書いた\n";
+    await writeFile(join(root, path), theirs, "utf8");
+    const res = await put(`/api/pages/${path}`, { content: "自分が書いた\n", sha: mine });
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { error: string; current: { path: string; sha: string; content: string } };
+    expect(body.error).toContain("競合");
+    // 両方の内容: 相手の内容は本文で返り、自分の内容は送った側が持っている。ファイルは相手のまま
+    expect(body.current).toEqual({ path, sha: blobSha(Buffer.from(theirs, "utf8")), content: theirs });
+    expect((await readFile(join(root, path))).toString("utf8")).toBe(theirs);
+    // 相手の sha を添えれば書ける
+    const retry = await put(`/api/pages/${path}`, { content: "自分が書いた\n", sha: body.current.sha });
+    expect(retry.status).toBe(200);
+  });
+
+  it("sha が null（新しいページ）なのにファイルがあれば 409。ファイルがないのに sha があれば 409", async () => {
+    const res = await put("/api/pages/notes/2026-01-25.md", { content: "x", sha: null });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { current: { path: string } }).current.path).toBe("notes/2026-01-25.md");
+    const gone = await put("/api/pages/notes/nothing.md", { content: "x", sha: "0000000000000000000000000000000000000000" });
+    expect(gone.status).toBe(409);
+    expect(((await gone.json()) as { current: null }).current).toBeNull();
+    const fresh = await put("/api/pages/notes/nothing.md", { content: "x", sha: null });
+    expect(fresh.status).toBe(200);
   });
 
   it("日本語のファイル名で新しいページを作り、取得できる", async () => {

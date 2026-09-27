@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createLocalApi } from "../server/local";
 import { Kb } from "./kb";
-import { ApiSource, NotFoundError, encodePath } from "./source";
+import { ApiSource, ConflictError, NotFoundError, encodePath } from "./source";
 import { MemoryStore, type StoredFile } from "./store";
 
 function file(path: string, content: string, sha = `sha:${content}`): StoredFile {
@@ -45,6 +45,26 @@ describe("ApiSource: ローカルモードのAPIを取り込み元にする", ()
     await expect(source.list()).rejects.toThrow("501 まだない");
     const gone = new ApiSource(async () => Response.json({ error: "ない" }, { status: 404 }));
     await expect(gone.read("notes/a.md")).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  it("409 は ConflictError で、相手の内容を持つ。消えていれば null", async () => {
+    const current = { path: "notes/a.md", sha: "s", content: "相手" };
+    const conflict = new ApiSource(async () => Response.json({ error: "競合", current }, { status: 409 }));
+    const e = await conflict.write("notes/a.md", "自分", "old", "web: a").catch((err: unknown) => err);
+    expect(e).toBeInstanceOf(ConflictError);
+    expect((e as ConflictError).current).toEqual(current);
+    expect((e as ConflictError).message).toContain("競合");
+    const gone = new ApiSource(async () => Response.json({ error: "競合", current: null }, { status: 409 }));
+    const g = await gone.write("notes/a.md", "自分", "old", "web: a").catch((err: unknown) => err);
+    expect((g as ConflictError).current).toBeNull();
+    // current が欠けている・形が違う 409 は「読めない」（undefined）
+    const bare = new ApiSource(async () => new Response("conflict", { status: 409 }));
+    const b = await bare.write("notes/a.md", "自分", "old", "web: a").catch((err: unknown) => err);
+    expect(b).toBeInstanceOf(ConflictError);
+    expect((b as ConflictError).current).toBeUndefined();
+    const broken = new ApiSource(async () => Response.json({ error: "競合", current: { path: "a" } }, { status: 409 }));
+    const br = await broken.write("notes/a.md", "自分", "old", "web: a").catch((err: unknown) => err);
+    expect((br as ConflictError).current).toBeUndefined();
   });
 
   it("応答の形が違えば投げ、余分な項目は控えに入れない", async () => {

@@ -254,6 +254,14 @@ export class Kb {
     await this.saveIndex();
   }
 
+  // 相手が消したページを控えと索引から外す
+  async remove(path: string): Promise<void> {
+    await this.loadLinks();
+    await this.store.remove([path]);
+    this.drop(path);
+    await this.saveIndex();
+  }
+
   // 本文つきのページ。ref は name でも title でも [[ ]] 付きでもよい。表示のときに、そのページの分だけ控えから読む
   async page(ref: string): Promise<Page | null> {
     const found = this.index.resolve(ref);

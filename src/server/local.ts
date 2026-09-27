@@ -109,13 +109,32 @@ export function createLocalApi({ root, dir }: LocalOptions): (req: Request) => P
     } catch {
       throw new HttpError(400, "本文がJSONではない");
     }
-    const content = (body as { content?: unknown } | null)?.content;
+    const { content, sha } = (body as { content?: unknown; sha?: unknown } | null) ?? {};
     if (typeof content !== "string") throw new HttpError(400, "content がない");
+    if (sha !== undefined && sha !== null && typeof sha !== "string") throw new HttpError(400, "sha が文字列でない");
+    const path = segments.join("/");
     const file = join(root, ...segments);
+
+    // 競合の検出（SPEC.md「API」）。sha がいまのファイルと違うとき、null なのにファイルがあるときは書かずに 409 で相手の内容を返す
+    let current: Buffer | null = null;
+    try {
+      current = await readFile(file);
+    } catch (e) {
+      if (!isNotFound(e)) throw e;
+    }
+    if (current !== null) {
+      const currentSha = blobSha(current);
+      if (sha === null || sha === undefined || sha !== currentSha) {
+        return json({ error: "競合: ファイルが変わっている", current: { path, sha: currentSha, content: current.toString("utf8") } }, 409);
+      }
+    } else if (sha !== null && sha !== undefined) {
+      return json({ error: "競合: ファイルが消えている", current: null }, 409);
+    }
+
     await mkdir(dirname(file), { recursive: true });
     const bytes = Buffer.from(content, "utf8");
     await writeFile(file, bytes);
-    return json({ path: segments.join("/"), sha: blobSha(bytes) });
+    return json({ path, sha: blobSha(bytes) });
   }
 
   async function getFile(segments: string[]): Promise<Response> {
