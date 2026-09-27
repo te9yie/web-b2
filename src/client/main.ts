@@ -25,6 +25,7 @@ async function openStore(): Promise<FileStore> {
 async function start(): Promise<void> {
   const status = document.querySelector<HTMLParagraphElement>("#status")!;
   const list = document.querySelector<HTMLUListElement>("#pages")!;
+  performance.mark("sync:start");
   const store = await openStore();
   let files;
   let note: string;
@@ -36,7 +37,11 @@ async function start(): Promise<void> {
     files = await store.all();
     note = `差分を取れなかったので控えを表示: ${message(e)}`;
   }
+  // 計測用（perf/）。控えを開いて差分を取るまでと、解析して索引を作るまでを分けて出す
+  performance.measure("sync", "sync:start");
+  performance.mark("index:start");
   const index = buildIndex(files);
+  performance.measure("index", "index:start");
   status.textContent = `${index.size}ページ（${note}）`;
   for (const page of [...index.pages.values()].sort(byUpdatedDesc)) {
     const li = document.createElement("li");

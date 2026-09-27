@@ -149,19 +149,16 @@ export function maskCode(md: string): string {
   return out.join("");
 }
 
-// インラインコード。同じ数のバッククォートで閉じる。閉じないものは文字のまま。空行はまたがない
+// インラインコード。同じ数のバッククォートで閉じる。閉じないものは文字のまま。空行はまたがない。
+// バッククォートのない部分はまとめて写す（1文字ずつ連結すると1万ページで数秒かかる）
 function maskInlineCode(text: string): string {
-  let result = "";
-  let i = 0;
-  while (i < text.length) {
-    if (text[i] !== "`") {
-      result += text[i];
-      i++;
-      continue;
-    }
+  const out: string[] = [];
+  let copied = 0;
+  let i = text.indexOf("`");
+  if (i < 0) return text;
+  while (i >= 0 && i < text.length) {
     let n = 0;
     while (text[i + n] === "`") n++;
-    const open = text.slice(i, i + n);
     let j = i + n;
     let closeAt = -1;
     while (j < text.length) {
@@ -175,16 +172,17 @@ function maskInlineCode(text: string): string {
       }
       j = k + m;
     }
-    const inner = closeAt < 0 ? "" : text.slice(i + n, closeAt);
-    if (closeAt < 0 || /\r?\n[ \t]*\r?\n/.test(inner)) {
-      result += open;
-      i += n;
+    if (closeAt < 0 || /\r?\n[ \t]*\r?\n/.test(text.slice(i + n, closeAt))) {
+      // 閉じない。囲いの文字はそのまま残し、その先から探し直す
+      i = text.indexOf("`", i + n);
       continue;
     }
-    result += mask(open + inner + open);
-    i = closeAt + n;
+    out.push(text.slice(copied, i), mask(text.slice(i, closeAt + n)));
+    copied = closeAt + n;
+    i = text.indexOf("`", copied);
   }
-  return result;
+  out.push(text.slice(copied));
+  return out.join("");
 }
 
 // [[x]]・[[x|表示名]] の x
@@ -192,9 +190,9 @@ const WIKILINK = /\[\[([^\[\]|\r\n]+?)(?:\|[^\[\]\r\n]*)?\]\]/g;
 // 行頭または空白の直後の # に続く、空白と # 以外の文字列。行頭の `# ` は見出しなので空白で始まらない
 const TAG = new RegExp(`(?<=^|\\s)#([^\\s#${MASK}]+)`, "gmu");
 
-// 本文からリンクとタグを、出てきた順に重複なしで集める。コードの中は見ない
-export function extractLinks(body: string): string[] {
-  const masked = maskCode(body);
+// 本文からリンクとタグを、出てきた順に重複なしで集める。コードの中は見ない。
+// masked は maskCode(body) の結果。呼ぶ側が持っていれば渡して、塗りつぶしを繰り返さない
+export function extractLinks(body: string, masked: string = maskCode(body)): string[] {
   const found: { index: number; text: string }[] = [];
   for (const m of masked.matchAll(WIKILINK)) {
     const start = m.index + 2;
@@ -210,8 +208,7 @@ export function extractLinks(body: string): string[] {
 }
 
 // 本文の最初の `# ` 行の中身。コードブロックの中は見ない
-export function extractH1(body: string): string | null {
-  const masked = maskCode(body);
+export function extractH1(body: string, masked: string = maskCode(body)): string | null {
   const m = /^(#[ \t]+)(.+?)[ \t]*$/mu.exec(masked);
   if (!m) return null;
   const start = m.index + m[1].length;
@@ -238,7 +235,8 @@ function asList(v: string | string[] | undefined): string[] {
 export function parsePage(file: { path: string; content: string; sha?: string | null }): Page {
   const { data, body } = splitFrontMatter(file.content);
   const name = nameOf(file.path);
-  const h1 = extractH1(body);
+  const masked = maskCode(body);
+  const h1 = extractH1(body, masked);
   const fromName = /^\d{4}-\d{2}-\d{2}/.exec(name)?.[0] ?? null;
   const tags = asList(data.tags).map((t) => t.replace(/^#/, "")).filter((t) => t !== "");
   return {
@@ -249,7 +247,7 @@ export function parsePage(file: { path: string; content: string; sha?: string | 
     body,
     created: asString(data.created) ?? fromName,
     updated: asString(data.updated),
-    links: [...new Set([...tags, ...extractLinks(body)])],
+    links: [...new Set([...tags, ...extractLinks(body, masked)])],
     sha: file.sha ?? null,
   };
 }
