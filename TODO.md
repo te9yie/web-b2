@@ -77,6 +77,7 @@ AIには権限がなく、人がやる必要があること。上から順にや
   - マクロの関数は Promise を返してよく、本文は `kb.page(ref)` で読む（`DECISIONS.md` 2026-09-27）。見本の `embed` は `async` に書き換えた。`src/client/macro.ts`（`expand`）と `scripting.ts`（`Scripting`。`new Function` で `script.js` を実行し、`kb.macro`/`kb.command` の登録と構文エラー・実行時エラーを `error` に持つ）。`showPage` は本文を展開してから HTML にする。`/` のトップも展開してから最初のリンクを取る。
   - 展開は1回きり（戻り値の中の `{{ }}` は展開しない）。入れ子にしたいマクロは `kb.expand` を自分で呼ぶ（見本の `embed` がそう）。マクロが例外を投げたら、その場所に `（{{名前}}: 理由）` を出す。
 - [ ] スクリプトの構文エラーを `settings` ページの先頭に出す。完了条件: e2eで壊れたスクリプトを保存するとエラーが表示される
+  - `Scripting.error` と `Settings.name` で足りる。`new Function` の SyntaxError には行番号が入らない（V8）ので、名前と理由だけ出す。保存は段階5なので、e2e は `page.request.put` で settings を書き換えて reload する形になるが、e2e は `fixtures/` を複数のワーカーで共有しているので、そのテストだけ一時ディレクトリへ複製した `KB_ROOT` の別の `webServer`（か `workers: 1` の別プロジェクト）で動かす。
 
 ## 段階5 編集と保存
 

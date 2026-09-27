@@ -68,7 +68,15 @@ export class Scripting {
     }
   }
 
-  expand(md: string, ctx: MacroContext): Promise<string> {
-    return expand(md, ctx, this.macros);
+  // kb.expand から再帰的に呼ばれたときの深さを、呼び出しの連なりで数える（stack を伸ばさない再帰を止めるため）
+  private depth = 0;
+
+  async expand(md: string, ctx: MacroContext): Promise<string> {
+    this.depth++;
+    try {
+      return await expand(md, ctx, this.macros, this.depth - 1);
+    } finally {
+      this.depth--;
+    }
   }
 }

@@ -11,12 +11,16 @@ export interface MacroContext {
   stack: string[];
 }
 
-export type MacroFn = (arg: string, ctx: MacroContext) => string | Promise<string>;
+export type MacroFn = (arg: string, ctx: MacroContext) => string | Promise<string> | null | undefined;
 
-// {{名前 引数}}。名前は空白と { } 以外、引数は } と改行以外の文字列（前後の空白は落とす）
-export const MACRO = /\{\{[ \t]*([^\s{}]+)(?:[ \t]+([^{}\r\n]*?))?[ \t]*\}\}/g;
+// {{名前 引数}}。名前は空白と { } 以外、引数は } と改行以外の文字列（前後の空白は落とす）。名前と引数の区切りは半角か全角の空白
+const SP = "[ \\t\\u3000]";
+export const MACRO = new RegExp(`\\{\\{${SP}*([^\\s{}]+)(?:${SP}+([^{}\\r\\n]*?))?${SP}*\\}\\}`, "g");
 
-export async function expand(md: string, ctx: MacroContext, macros: ReadonlyMap<string, MacroFn>): Promise<string> {
+// kb.expand を自分で呼ぶマクロが stack を伸ばさずに再帰したときに止める深さ
+export const MAX_DEPTH = 20;
+
+export async function expand(md: string, ctx: MacroContext, macros: ReadonlyMap<string, MacroFn>, depth = 0): Promise<string> {
   const masked = maskCode(md);
   let out = "";
   let pos = 0;
@@ -25,12 +29,23 @@ export async function expand(md: string, ctx: MacroContext, macros: ReadonlyMap<
     const fn = macros.get(name);
     if (!fn) continue;
     const raw = md.slice(m.index, m.index + m[0].length);
-    const arg = raw.slice(2, -2).trim().slice(name.length).trim();
+    const arg = raw
+      .slice(2, -2)
+      .trim()
+      .slice(name.length)
+      .replace(/^[ \t　]+/, "")
+      .trim();
     let replaced: string;
-    try {
-      replaced = String(await fn(arg, ctx));
-    } catch (e) {
-      replaced = `（{{${name}}}: ${e instanceof Error ? e.message : String(e)}）`;
+    if (depth >= MAX_DEPTH) {
+      replaced = `（{{${name}}}: 展開が深すぎる）`;
+    } else {
+      try {
+        // ctx はマクロごとに写しを渡す。マクロが stack を書き換えても他に影響しない
+        const value = await fn(arg, { name: ctx.name, stack: [...ctx.stack] });
+        replaced = value === null || value === undefined ? "" : String(value);
+      } catch (e) {
+        replaced = `（{{${name}}}: ${e instanceof Error ? e.message : String(e)}）`;
+      }
     }
     out += md.slice(pos, m.index) + replaced;
     pos = m.index + raw.length;

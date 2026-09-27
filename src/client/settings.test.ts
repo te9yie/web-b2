@@ -56,7 +56,7 @@ describe("parseSettings", () => {
     const s = parseSettings(page);
     expect(s.name).toBe("2026-01-05-settings");
     // トップはマクロの展開前の文字。展開は段階4
-    expect(s.top).toBe("{{date}}");
+    expect(firstLink(s.topSection ?? "")).toBe("{{date}}");
     expect(s.header).toEqual([
       { label: "今日", target: "/", page: false },
       { label: "一覧", target: "/all", page: false },
@@ -69,14 +69,14 @@ describe("parseSettings", () => {
   it("ページがなければ既定。見出しがなければその項目は既定", () => {
     expect(parseSettings(null)).toBe(DEFAULT_SETTINGS);
     const s = parseSettings(body("# settings\n\n## トップ\n\n- [[2026-01-25]]\n"));
-    expect(s.top).toBe("2026-01-25");
+    expect(firstLink(s.topSection ?? "")).toBe("2026-01-25");
     expect(s.header).toBe(DEFAULT_HEADER);
     expect(s.css).toBeNull();
   });
 
   it("トップの [[リンク]] はコードの中を見ない。節の生の文字列も持つ", () => {
     const s = parseSettings(body("# settings\n\n## トップ\n\n`[[in-code]]`\n\n```js x\n[[in-block]]\n```\n\n- [[real]]\n"));
-    expect(s.top).toBe("real");
+    expect(firstLink(s.topSection ?? "")).toBe("real");
     expect(s.topSection).toContain("- [[real]]");
   });
 

@@ -1,4 +1,3 @@
-import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { createLocalApi } from "../server/local";
 import { Kb } from "./kb";
@@ -32,10 +31,19 @@ describe("expand", () => {
     expect(out).toBe("（{{bad}}: 落ちた） OK");
   });
 
-  it("引数に改行や { } は含められない。戻り値は文字列にする", async () => {
+  it("引数に改行や { } は含められない。戻り値は文字列にし、null と undefined は空", async () => {
     expect(await expand("{{x a\nb}}", ctx, macros({ x: () => "X" }))).toBe("{{x a\nb}}");
     expect(await expand("{{x {y}}}", ctx, macros({ x: () => "X" }))).toBe("{{x {y}}}");
     expect(await expand("{{n}}", ctx, macros({ n: () => 42 as unknown as string }))).toBe("42");
+    expect(await expand("a{{u}}b", ctx, macros({ u: () => undefined }))).toBe("ab");
+  });
+
+  it("名前と引数の区切りは全角空白でもよい。ctx はマクロごとの写し", async () => {
+    expect(await expand("{{x　全角}}", ctx, macros({ x: (a) => `<${a}>` }))).toBe("<全角>");
+    const c = { name: "p", stack: ["p"] };
+    const out = await expand("{{a}}{{b}}", c, macros({ a: (_, x) => { x.stack.push("z"); return "A"; }, b: (_, x) => x.stack.join(",") }));
+    expect(out).toBe("Ap");
+    expect(c.stack).toEqual(["p"]);
   });
 });
 
@@ -111,8 +119,10 @@ describe("Scripting: 見本の settings の script.js", () => {
     expect((await api.page("見本の本A"))?.body).toContain("著者は");
   });
 
-  it("見本の README の説明どおり、settings の script.js を素直に読める", async () => {
-    const md = await readFile("fixtures/notes/2026-01-05-settings.md", "utf8");
-    expect(md).toContain("```js script.js");
+  it("kb.expand を stack を伸ばさずに再帰するマクロは、深さの上限で止まる", async () => {
+    const { scripting } = await setup();
+    scripting.load("kb.macro('loop', (a, ctx) => kb.expand('{{loop}}', ctx));");
+    const out = await scripting.expand("{{loop}}", { name: "p", stack: ["p"] });
+    expect(out).toBe("（{{loop}}: 展開が深すぎる）");
   });
 });
