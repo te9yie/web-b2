@@ -90,7 +90,7 @@ async function start(): Promise<void> {
   const scripting = new Scripting(kb);
   let settings = await loadSettings();
   applySettings(kb, settings);
-  scripting.load(settings.script);
+  scripting.load(settings.script, settings.name);
 
   // 差分を取る前の一覧には、控えの状態を添える。取り終えたら結果に差し替える
   let note = kb.rebuilt ? "控えから解析し直した。差分を確認中" : "差分を確認中";
@@ -192,7 +192,7 @@ async function start(): Promise<void> {
     // settings が変わっていることもあるので読み直す
     settings = await loadSettings();
     applySettings(kb, settings);
-    scripting.load(settings.script);
+    scripting.load(settings.script, settings.name);
     render(route);
   } else if (route.kind === "all" && route.q === "") {
     const status = document.querySelector("#status");

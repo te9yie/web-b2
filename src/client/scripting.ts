@@ -28,6 +28,8 @@ export class Scripting {
   readonly commands = new Map<string, CommandFn>();
   // 直近の load での構文エラーか実行時エラー。settings ページの先頭に出す
   error: string | null = null;
+  // スクリプトを読んだ settings ページの name。エラーを出す場所を見分ける
+  settingsName: string | null = null;
 
   constructor(private readonly kb: Kb) {}
 
@@ -54,10 +56,11 @@ export class Scripting {
   }
 
   // スクリプトを実行して登録をやり直す。script が null なら登録なし。エラーは error に残して投げない
-  load(script: string | null): void {
+  load(script: string | null, settingsName: string | null = null): void {
     this.macros.clear();
     this.commands.clear();
     this.error = null;
+    this.settingsName = settingsName;
     if (script === null || script.trim() === "") return;
     try {
       // 構文エラーはここで出る
