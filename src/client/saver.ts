@@ -78,7 +78,22 @@ export class Saver {
       clearTimeout(this.timer);
       this.timer = null;
     }
-    return Promise.all(dirtyDrafts().map(([path, draft]) => this.save(path, draft, options)));
+    return Promise.all(
+      dirtyDrafts().map(([path, draft]) =>
+        this.save(path, draft, options).then((result) => {
+          this.onResult(result);
+          return result;
+        }),
+      ),
+    );
+  }
+
+  // その path の下書きだけをすぐに保存する（/new と /append の「保存」）。ほかの下書きは送らず、タイマーにも触らない。
+  // onResult は呼ばない（結果は呼ぶ側が出す）
+  saveNow(path: string): Promise<SaveResult> {
+    const draft = getDraft(path);
+    if (!draft) return Promise.resolve({ path, ok: true });
+    return this.save(path, draft, {});
   }
 
   // 同じ path の保存は一つずつ連ねる。進行中なら終わってからもう一度（そのあいだの編集を拾う）
@@ -110,9 +125,7 @@ export class Saver {
         console.warn(`保存はできたが控えに反映できない: ${e instanceof Error ? e.message : String(e)}`);
       }
       this.lastError = null;
-      const result = { path, ok: true };
-      this.onResult(result);
-      return result;
+      return { path, ok: true };
     } catch (e) {
       const error = e instanceof Error ? e.message : String(e);
       if (e instanceof ConflictError && e.current !== undefined) {
@@ -127,14 +140,10 @@ export class Saver {
           }
         }
         this.lastError = null;
-        const result = { path, ok: false, error, conflict: e.current };
-        this.onResult(result);
-        return result;
+        return { path, ok: false, error, conflict: e.current };
       }
       this.lastError = error;
-      const result = { path, ok: false, error };
-      this.onResult(result);
-      return result;
+      return { path, ok: false, error };
     }
   }
 }

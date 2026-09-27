@@ -16,4 +16,11 @@ describe("parseRoute", () => {
     expect(parseRoute("/p/%E0%A4%A")).toEqual({ kind: "unknown", path: "/p/%E0%A4%A" });
     expect(parseRoute("/x")).toEqual({ kind: "unknown", path: "/x" });
   });
+
+  it("/new と /append のクエリは + を空白、%2B を + にし、壊れた並びでも例外にしない", () => {
+    expect(parseRoute("/new", "?body=a+b%2Bc")).toEqual({ kind: "new", title: "", body: "a b+c" });
+    expect(parseRoute("/new", "?body=%0A")).toEqual({ kind: "new", title: "", body: "\n" });
+    expect(parseRoute("/append", "?page=P&body=%E3%81")).toEqual({ kind: "append", page: "P", body: "�" });
+    expect(parseRoute("/append", "")).toEqual({ kind: "append", page: "", body: "" });
+  });
 });

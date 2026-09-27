@@ -1,3 +1,4 @@
+import { showCapture } from "./capture";
 import { today } from "./date";
 import { Kb } from "./kb";
 import { pageUrl } from "./render";
@@ -17,6 +18,7 @@ import {
   insertConflict,
   isEditing,
   leavePage,
+  markSyncFailed,
   markSynced,
   setConflictResolver,
   setPageDir,
@@ -199,8 +201,12 @@ async function start(): Promise<void> {
       case "all":
         showResults(query, seq);
         break;
-      default:
-        view.innerHTML = `<h1>web-b2</h1><p>このURLはまだ扱えない: ${escapeHtml(route.kind === "unknown" ? route.path : route.kind)}</p>`;
+      case "new":
+      case "append":
+        void showCapture({ kb, saver, router, pageDir: () => source.dir() }, route, view, seq);
+        break;
+      case "unknown":
+        view.innerHTML = `<h1>web-b2</h1><p>このURLはまだ扱えない: ${escapeHtml(route.path)}</p>`;
     }
   };
   // 戻る・進むのときは、欄にフォーカスがあっても URL に合わせる（render は入力中の欄を触らない）
@@ -254,6 +260,7 @@ async function start(): Promise<void> {
     note = `差分を取れなかったので控えを表示: ${message(e)}`;
     // 途中で失敗しても、それまでに読んだ分は索引に入っている（tarball が途中で切れた初回など）ので描き直す
     changed = kb.revision !== revision;
+    markSyncFailed(message(e));
   }
   performance.measure("sync", "sync:start");
   // 何か変わったときだけ表示を作り直す（変わっていないのに作り直すと、図が描き直されて選択が消える。段階5では編集中の内容も）。
@@ -267,7 +274,9 @@ async function start(): Promise<void> {
   }
   // まだないページは、同期が済んだので「編集」を出すために描き直す
   const missingPage = route.kind === "page" && kb.index.resolve(route.name) === null;
-  if (changed || missingPage) {
+  // 取り込みの確認画面は描き直さない（<textarea> で直した本文が消える）。同期を待って自分で行き先を出す
+  const capturing = route.kind === "new" || route.kind === "append";
+  if ((changed || missingPage) && !capturing) {
     // 編集中は描き直さない（下書きは残るので、次の表示で反映される）
     if (!isEditing()) render(route);
   } else if (route.kind === "all" && route.q === "") {
