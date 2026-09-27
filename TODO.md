@@ -86,7 +86,10 @@ AIには権限がなく、人がやる必要があること。上から順にや
 - [x] CodeMirror 6でページをその場で編集する。完了条件: e2eで本文を書き換えると表示に反映される
   - `src/client/editor.ts`（動的 import。`minimalSetup` に括弧の補完と Markdown のキー操作を足したもの）と `view.ts` の `startEdit`。「編集」で `.body` をエディタに差し替え、「表示」で描き直す。編集するのはファイルの中身そのもの（`kb.content(path)`）。下書きは `src/client/drafts.ts`（path → 基準のファイルと今の中身。改行は LF にそろえる）に持ち、表示はそれを解析して出す。保存は次のタスク。索引（title・links）は保存で更新する。
   - 保存のタスクで足すもの: `Kb.put(file)`（控え・索引・解析結果に1ページを反映）、`Source.write(path, content, sha, message)`、`leavePage()` からの保存、`pagehide` での保存（失敗に備えて下書きを IndexedDB にも置くことを検討）、入力停止の判定は IME の変換中を待つ。
-- [ ] 保存のタイミング（入力停止・ページ移動・タブを閉じる）と、ローカルモードでの書き込み。`updated` の更新。完了条件: e2eで編集後にファイルが変わっている
+- [x] 保存のタイミング（入力停止・ページ移動・タブを閉じる）と、ローカルモードでの書き込み。`updated` の更新。完了条件: e2eで編集後にファイルが変わっている
+  - `src/client/saver.ts` の `Saver`。下書きの変更で30秒のタイマーを張り直し、`render` のたび（ページ移動）と `pagehide`・`visibilitychange`（`keepalive` の fetch）で `flush`。`Source.write` → `Kb.put`（控え・索引・解析結果に反映）→ 下書きの基準を新しい sha に。失敗したら下書きを残し、ヘッダーに理由を出して次の機会に送り直す。`updated` は `withUpdated`（front matter のないページには足さない。`DECISIONS.md`）。
+  - ローカルモードの PUT はまだ `sha` を比べない（次の競合のタスク）。
+  - 編集する e2e はページを離れるだけで保存が走り `fixtures/` を書き換えるので、必ず `e2e/mutating/` に置く（`edit.spec.ts` もそちらへ移した）。
 - [ ] 新しいページの作成（ファイル名は時刻、`KB_DIR` の直下）。完了条件: e2eでまだないページに書き込むとファイルができる
 - [ ] 競合の検出（SHA不一致で上書きしない）。完了条件: 単体テストで、裏で変えたファイルへの保存が拒否され、両方の内容が返る
 
