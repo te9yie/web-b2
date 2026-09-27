@@ -18,7 +18,7 @@ AIには権限がなく、人がやる必要があること。上から順にや
   - 結果は `access` が false、`jwtHeader` と `cookie` が true。
 - [ ] Workerの Settings > Variables and Secrets で、`ACCESS_TEAM_DOMAIN`（`https://<チーム名>.cloudflareaccess.com`）と `ACCESS_AUD` を Secret として登録する。AUDは Zero Trust の Access > Applications でこのWorkerのアプリを開くと「Application Audience (AUD) Tag」として出る（one-click Access のアプリがそこに並ぶかは未確認）。見つからなければ、ログイン後にブラウザの開発者ツールで `CF_Authorization` クッキーのJWTを base64url で解読し、本文の `aud` を使う
 - [ ] 登録後にログインして `/api/pages` を開き、401ではなく501（`{"error":"まだない"}`）が返ることを確かめる。401ならトークンを登録せずに止める
-  - Secret と AUD を登録しても401のまま。原因を調べるため、401の本文に落ちた理由（`reason`）を一時的に入れた。原因が分かったら消す。
+  - Secret と AUD を登録しても401のままだった。原因は、Previews Base のシークレットが既存のプレビューに反映されないことだった。調べるために401の本文へ一時的に入れた理由の表示は消した。
 - [ ] GitHubの Settings > Developer settings > Personal access tokens > Fine-grained tokens で、Repository access を知識庫リポジトリだけ、Repository permissions を Contents: Read and write だけにしたトークンを作る。期限の日を控える
 - [ ] Workerの Settings > Variables and Secrets で、`GITHUB_TOKEN` と `KB_REPO`（`owner/repo`）を Secret として登録する。公開リポジトリの wrangler 設定には書かない
 

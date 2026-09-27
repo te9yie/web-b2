@@ -18,13 +18,19 @@ export interface VerifierDeps {
   now(): number;
 }
 
-// 通らなかった理由。401の原因を調べるため、一時的に本文にも出している
-export type AccessFailure =
-  | { reason: "bad-format" | "alg" | "no-key" | "certs-fetch-failed" | "signature" | "exp" | "nbf" }
-  | { reason: "aud"; tokenAud: unknown; expectedLength: number }
-  | { reason: "iss"; tokenIss: unknown; expectedLength: number };
+// 通らなかった理由
+export type AccessFailureReason =
+  | "bad-format"
+  | "alg"
+  | "no-key"
+  | "certs-fetch-failed"
+  | "signature"
+  | "aud"
+  | "iss"
+  | "exp"
+  | "nbf";
 
-export type AccessResult = { ok: true } | ({ ok: false } & AccessFailure);
+export type AccessResult = { ok: true } | { ok: false; reason: AccessFailureReason };
 
 export type AccessVerifier = (token: string, config: AccessConfig) => Promise<AccessResult>;
 
@@ -67,10 +73,10 @@ export function createAccessVerifier(deps: VerifierDeps): AccessVerifier {
   }
 
   return async (token, config): Promise<AccessResult> => {
-    const fail = (failure: AccessFailure): AccessResult => ({ ok: false, ...failure });
+    const fail = (reason: AccessFailureReason): AccessResult => ({ ok: false, reason });
     const teamDomain = normalizeTeamDomain(config.teamDomain);
     const parts = token.split(".");
-    if (parts.length !== 3) return fail({ reason: "bad-format" });
+    if (parts.length !== 3) return fail("bad-format");
     const [headerPart, payloadPart, signaturePart] = parts;
     let header: Record<string, unknown>;
     let payload: Record<string, unknown>;
@@ -80,44 +86,36 @@ export function createAccessVerifier(deps: VerifierDeps): AccessVerifier {
       payload = decodeJson(payloadPart);
       signature = base64UrlDecode(signaturePart);
     } catch {
-      return fail({ reason: "bad-format" });
+      return fail("bad-format");
     }
-    if (header.alg !== "RS256") return fail({ reason: "alg" });
-    if (typeof header.kid !== "string") return fail({ reason: "no-key" });
+    if (header.alg !== "RS256") return fail("alg");
+    if (typeof header.kid !== "string") return fail("no-key");
 
     let jwk: JsonWebKey | undefined;
     try {
       jwk = await findKey(`${teamDomain}/cdn-cgi/access/certs`, header.kid);
     } catch (e) {
       console.error("Accessの鍵を取れない", e);
-      return fail({ reason: "certs-fetch-failed" });
+      return fail("certs-fetch-failed");
     }
-    if (!jwk) return fail({ reason: "no-key" });
+    if (!jwk) return fail("no-key");
     let key: CryptoKey;
     try {
       key = await crypto.subtle.importKey("jwk", jwk, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, [
         "verify",
       ]);
     } catch {
-      return fail({ reason: "no-key" });
+      return fail("no-key");
     }
     const signed = new TextEncoder().encode(`${headerPart}.${payloadPart}`);
-    if (!(await crypto.subtle.verify("RSASSA-PKCS1-v1_5", key, signature, signed))) {
-      return fail({ reason: "signature" });
-    }
+    if (!(await crypto.subtle.verify("RSASSA-PKCS1-v1_5", key, signature, signed))) return fail("signature");
 
     const auds = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
-    if (!auds.includes(config.aud)) {
-      return fail({ reason: "aud", tokenAud: payload.aud, expectedLength: config.aud.length });
-    }
-    if (payload.iss !== teamDomain) {
-      return fail({ reason: "iss", tokenIss: payload.iss, expectedLength: teamDomain.length });
-    }
+    if (!auds.includes(config.aud)) return fail("aud");
+    if (payload.iss !== teamDomain) return fail("iss");
     const nowSec = deps.now() / 1000;
-    if (typeof payload.exp !== "number" || payload.exp <= nowSec) return fail({ reason: "exp" });
-    if (payload.nbf !== undefined && (typeof payload.nbf !== "number" || payload.nbf > nowSec)) {
-      return fail({ reason: "nbf" });
-    }
+    if (typeof payload.exp !== "number" || payload.exp <= nowSec) return fail("exp");
+    if (payload.nbf !== undefined && (typeof payload.nbf !== "number" || payload.nbf > nowSec)) return fail("nbf");
     return { ok: true };
   };
 }

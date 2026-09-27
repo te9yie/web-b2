@@ -50,23 +50,16 @@ describe("createAccessVerifier", () => {
     expect(await verify(`${h}.${b}.${s}`, config)).toEqual({ ok: false, reason: "signature" });
   });
 
-  it("aud が違えば通さず、トークンの aud と比べた側の長さを返す", async () => {
+  it("aud が違えば通さない", async () => {
     const { verify } = setup(() => jwks(key));
-    expect(await verify(await sign(key, { aud: ["other"] }), config)).toEqual({
-      ok: false,
-      reason: "aud",
-      tokenAud: ["other"],
-      expectedLength: aud.length,
-    });
+    expect(await verify(await sign(key, { aud: ["other"] }), config)).toEqual({ ok: false, reason: "aud" });
   });
 
-  it("iss が違えば通さず、トークンの iss と比べた側の長さを返す", async () => {
+  it("iss が違えば通さない", async () => {
     const { verify } = setup(() => jwks(key));
     expect(await verify(await sign(key, { iss: "https://evil.cloudflareaccess.com" }), config)).toEqual({
       ok: false,
       reason: "iss",
-      tokenIss: "https://evil.cloudflareaccess.com",
-      expectedLength: teamDomain.length,
     });
   });
 
