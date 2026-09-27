@@ -5,7 +5,7 @@ import { type Route, startRouter } from "./router";
 import { search } from "./search";
 import { firstLink } from "./md";
 import { Scripting } from "./scripting";
-import { dropClean, resolveConflict } from "./drafts";
+import { dropClean, getDraft, resolveConflict } from "./drafts";
 import { SAVE_DELAY, Saver } from "./saver";
 import { DEFAULT_SETTINGS, type Settings } from "./settings";
 import { ApiSource } from "./source";
@@ -14,6 +14,7 @@ import {
   beginRender,
   currentEditingPath,
   escapeHtml,
+  insertConflict,
   isEditing,
   leavePage,
   markSynced,
@@ -116,8 +117,11 @@ async function start(): Promise<void> {
     if (result.conflict !== undefined) {
       saveNote.textContent = "別の場所で変わっている";
       saveNote.title = "そのページを開くと、相手の内容と選択肢が出る";
-      // いま見ているページなら、競合の表示を出すために描き直す（編集中でも。下書きは残る）
-      if (currentPagePath() === result.path) render(router.current());
+      // いま見ているページなら競合の表示を出す。編集中はエディタを閉じずに差し込む（カーソルと変換中の文字を失わないため）
+      if (currentPagePath() === result.path) {
+        if (isEditing()) insertConflict(view, result.path);
+        else render(router.current());
+      }
       return;
     }
     saveNote.textContent = result.ok ? "" : `保存できない: ${result.error}`;
@@ -125,12 +129,15 @@ async function start(): Promise<void> {
   });
   // 競合の解決。上書きなら基準を相手の sha にして送り、そろえるなら下書きを捨てる。どちらも描き直す
   setConflictResolver((path, choice) => {
+    // 相手が消していて「捨てる」を選んだら、控えと索引からもここで消す
+    const gone = getDraft(path)?.conflict?.sha === null;
     resolveConflict(path, choice);
     saveNote.textContent = "";
     const after = () => {
-      if (currentPagePath() === path) render(router.current());
+      if (currentPagePath() === path || gone) render(router.current());
     };
     if (choice === "mine") void saver.flush().then(after);
+    else if (gone) void kb.remove(path).then(after);
     else after();
   });
   // タブを閉じるときに保存する。keepalive の fetch はページが消えても送り終える。

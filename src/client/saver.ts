@@ -115,15 +115,18 @@ export class Saver {
       return result;
     } catch (e) {
       const error = e instanceof Error ? e.message : String(e);
-      if (e instanceof ConflictError) {
-        // 下書きに相手の内容を付けて自動の再送から外し、控えと索引は相手の内容にする（消えていれば控えからも消す）
+      if (e instanceof ConflictError && e.current !== undefined) {
+        // 下書きに相手の内容を付けて自動の再送から外し、控えと索引は相手の内容にする。
+        // 相手が消していても控えと索引は残す（ページが「まだない」になると下書きに辿れない）。消すのは「そろえる」を選んだとき
         markConflict(path, e.current ?? { path, sha: null, content: "" });
-        try {
-          if (e.current) await this.kb.put(e.current);
-          else await this.kb.remove(path);
-        } catch (err) {
-          console.warn(`相手の内容を控えに反映できない: ${err instanceof Error ? err.message : String(err)}`);
+        if (e.current) {
+          try {
+            await this.kb.put(e.current);
+          } catch (err) {
+            console.warn(`相手の内容を控えに反映できない: ${err instanceof Error ? err.message : String(err)}`);
+          }
         }
+        this.lastError = null;
         const result = { path, ok: false, error, conflict: e.current };
         this.onResult(result);
         return result;

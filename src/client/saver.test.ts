@@ -187,15 +187,32 @@ describe("Saver", () => {
     expect(source.writes.length).toBe(1);
   });
 
-  it("相手が消していたら、控えからも消え、下書きには消えた印が付く", async () => {
+  it("相手が消していたら、下書きに消えた印が付く。控えと索引は残す（「捨てる」を選ぶまで）", async () => {
     const { source, kb, saver } = await setup();
     source.files.delete(PATH);
     updateDraft(PATH, `${ORIGINAL}x\n`);
     const [result] = await saver.flush();
     expect(result.conflict).toBeNull();
     expect(getDraft(PATH)?.conflict).toEqual({ path: PATH, sha: null, content: "" });
-    expect(await kb.content(PATH)).toBeUndefined();
-    expect(kb.index.get("a")).toBeUndefined();
+    expect((await kb.content(PATH))?.content).toBe(ORIGINAL);
+    expect(kb.index.get("a")).toBeDefined();
+  });
+
+  it("相手の内容を読めない 409 は普通の失敗として扱い、控えに触らず、次に送り直す", async () => {
+    const { source, kb, saver } = await setup();
+    const write = source.write.bind(source);
+    source.write = async () => {
+      throw new ConflictError("409", undefined);
+    };
+    updateDraft(PATH, `${ORIGINAL}x\n`);
+    const [result] = await saver.flush();
+    expect(result.ok).toBe(false);
+    expect(result.conflict).toBeUndefined();
+    expect(getDraft(PATH)?.conflict).toBeUndefined();
+    expect((await kb.content(PATH))?.content).toBe(ORIGINAL);
+    source.write = write;
+    await saver.flush();
+    expect(source.writes.length).toBe(1);
   });
 
   it("書けたあとに控えへの反映が失敗しても、基準は新しい sha になる", async () => {

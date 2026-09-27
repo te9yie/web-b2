@@ -20,11 +20,11 @@ export interface Source {
 
 export class NotFoundError extends Error {}
 
-// 書き込みの競合（409）。current は相手（いまのファイル）の内容。消えていれば null
+// 書き込みの競合（409）。current は相手（いまのファイル）の内容。相手が消していれば null、本文から読めなければ undefined
 export class ConflictError extends Error {
   constructor(
     message: string,
-    readonly current: StoredFile | null,
+    readonly current: StoredFile | null | undefined,
   ) {
     super(message);
   }
@@ -55,7 +55,11 @@ async function readJson(res: Response): Promise<unknown> {
       // 本文がJSONでなければ状態コードだけ
     }
     if (res.status === 404) throw new NotFoundError(`APIの応答が異常: ${message}`);
-    if (res.status === 409) throw new ConflictError(message, isRecord(body) ? asFile(body.current) : null);
+    if (res.status === 409) {
+      // current: null は「相手が消した」。欠けているか形が違うなら「読めない」（undefined）で、控えには触らせない
+      const current = isRecord(body) && "current" in body ? (body.current === null ? null : (asFile(body.current) ?? undefined)) : undefined;
+      throw new ConflictError(message, current);
+    }
     throw new Error(`APIの応答が異常: ${message}`);
   }
   return res.json();

@@ -89,6 +89,15 @@ function conflictBox(conflict: NonNullable<Draft["conflict"]>, path: string): HT
   return box;
 }
 
+// 編集中に競合が届いたとき、エディタを閉じずに競合の表示だけ差し込む（既にあれば差し替える）
+export function insertConflict(root: HTMLElement, path: string): void {
+  const draft = getDraft(path);
+  const tools = root.querySelector<HTMLElement>("article .tools");
+  if (!draft?.conflict || !tools) return;
+  root.querySelector("section.conflict")?.remove();
+  tools.before(conflictBox(draft.conflict, path));
+}
+
 // 起動後の差分の同期が一度済んだか。済むまでは索引が古い（初回は空）ので、「まだないページ」に「編集」を出さない
 // （既存のページを新しいページとして作ってしまわないように）
 let synced = false;

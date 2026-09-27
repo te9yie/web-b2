@@ -57,6 +57,14 @@ describe("ApiSource: ローカルモードのAPIを取り込み元にする", ()
     const gone = new ApiSource(async () => Response.json({ error: "競合", current: null }, { status: 409 }));
     const g = await gone.write("notes/a.md", "自分", "old", "web: a").catch((err: unknown) => err);
     expect((g as ConflictError).current).toBeNull();
+    // current が欠けている・形が違う 409 は「読めない」（undefined）
+    const bare = new ApiSource(async () => new Response("conflict", { status: 409 }));
+    const b = await bare.write("notes/a.md", "自分", "old", "web: a").catch((err: unknown) => err);
+    expect(b).toBeInstanceOf(ConflictError);
+    expect((b as ConflictError).current).toBeUndefined();
+    const broken = new ApiSource(async () => Response.json({ error: "競合", current: { path: "a" } }, { status: 409 }));
+    const br = await broken.write("notes/a.md", "自分", "old", "web: a").catch((err: unknown) => err);
+    expect((br as ConflictError).current).toBeUndefined();
   });
 
   it("応答の形が違えば投げ、余分な項目は控えに入れない", async () => {
