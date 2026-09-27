@@ -14,7 +14,7 @@ Markdownファイルのリポジトリ（知識庫）を、ブラウザから閲
 
 ファイルはGitHubのリポジトリにあり、アプリはそれを直接読み書きする。Workerは、そのリポジトリの Contents に限定した fine-grained token を持ち、GitHub APIへの中継だけを行う。Markdownの解析、索引、検索、マクロの展開、表示はすべてブラウザで行う（Workersは1リクエストのCPU時間が短く、`eval` と `new Function` が使えない）。
 
-ブラウザは初回にリポジトリのtarballをWorker経由で取得して展開し、ページごとの `path`・`sha`・中身と、全ページの解析結果（`title`・`links`・`created`・`updated` など）をIndexedDBに保存する。起動時は解析結果だけを読んで索引を作って先に表示し、本文はページの表示と検索のときに読む。その後で、全ファイルの `sha` の一覧（Worker が Trees API で取る）を控えと比べ、変わったファイルだけ読み直して索引と解析結果を更新する。
+ブラウザは初回にリポジトリのtarballをWorker経由で取得して展開し、ページごとの `path`・`sha`・中身と、全ページの解析結果（`title`・`links`・`created`・`updated` など）をIndexedDBに保存する。tarballの各ファイルはblobの `sha` を計算し、一覧の `sha` と合うものだけを控えに入れ、合わないものとtarballにないものは1件ずつ読む。合わないものが300件を超えたら、1件ずつは読まずにエラーにする。控えがあっても、読み直すファイルが300件を超えるときはtarballで取る。起動時は解析結果だけを読んで索引を作って先に表示し、本文はページの表示と検索のときに読む。その後で、全ファイルの `sha` の一覧（Worker が Trees API で取る）を控えと比べ、変わったファイルだけ読み直して索引と解析結果を更新する。ローカルモードはtarballを持たないので、初回も1件ずつ読む。
 
 ローカルモードも持つ。Node.jsのサーバーがディレクトリを直接読み書きし、Workerと同じ `/api/*` を返す。テストと手元の動作確認はこれで行う。SPA側はどちらのモードでも同じコードで動く。
 
@@ -86,7 +86,7 @@ Workerとローカルモードで同じ形にする。`<path>` はリポジト�
 
 | メソッドとパス | 中身 |
 | --- | --- |
-| `GET /api/pages` | `KB_DIR` の下の `.md` の一覧。`{ pages: [{ path, sha }], dir, head }`、パス順。`dir` は `KB_DIR` の値で、新しいページの置き場に使う。`head` はブランチの先頭のコミット（ローカルモードにはない） |
+| `GET /api/pages` | `KB_DIR` の下の `.md` の一覧。`{ pages: [{ path, sha }], dir, head }`、パス順。`dir` は `KB_DIR` の値で、新しいページの置き場に使う。`head` はブランチの先頭のコミット（ローカルモードにはない）。`head` があれば `GET /api/archive` を使える |
 | `GET /api/archive` | リポジトリの tarball（gzip）をそのまま流す。`x-head` ヘッダーにブランチの先頭のコミット。初回の取り込みに使う（ローカルモードにはない） |
 | `GET /api/pages/<path>` | 1ページ。`{ path, sha, content }` |
 | `PUT /api/pages/<path>` | `{ content, sha, message }` を受けて書き込み、`{ path, sha }` を返す。`sha` は編集を始めたときの値で、新しいページは `null`。`message` はコミットメッセージ。書き込めるのは `KB_DIR` の下の `.md` だけ。`sha` がいまのファイルと違うとき、または `null` なのにファイルがあるときは書かずに 409 を返し、本文は `{ error, current: { path, sha, content } }` |

@@ -21,8 +21,8 @@ AIには権限がなく、人がやる必要があること。上から順にや
   - Secret と AUD を登録しても401のままだった。原因は、Previews Base のシークレットが既存のプレビューに反映されないことだった。調べるために401の本文へ一時的に入れた理由の表示は消した。
   - 本番でも401だったのは、プロダクション側がシークレットではなくテキストの変数で登録されていて、`wrangler deploy` で消えたためと推測している（未確認）。シークレットで登録し直すと `{"error":"まだない"}` になった（2026-09-27）。AUDは、ログイン画面への転送先URLの `kid=` の値と同じだった。
   - 以後、Workerの設定値は「設定」タブで、プロダクションと Previews Base の両方に、タイプを「シークレット」にして登録する。Previews Base のシークレットは、登録した後に作られたプレビュー（新しいブランチの最初のpush）にしか入らない。
-- [ ] GitHubの Settings > Developer settings > Personal access tokens > Fine-grained tokens で、Repository access を知識庫リポジトリだけ、Repository permissions を Contents: Read and write だけにしたトークンを作る。期限の日を控える
-- [ ] Workerの Settings > Variables and Secrets で、`GITHUB_TOKEN` と `KB_REPO`（`owner/repo`）を Secret として登録する。公開リポジトリの wrangler 設定には書かない
+- [x] GitHubの Settings > Developer settings > Personal access tokens > Fine-grained tokens で、Repository access を知識庫リポジトリだけ、Repository permissions を Contents: Read and write だけにしたトークンを作る。期限の日を控える
+- [x] Workerの Settings > Variables and Secrets で、`GITHUB_TOKEN` と `KB_REPO`（`owner/repo`）を Secret として登録する。公開リポジトリの wrangler 設定には書かない
 
 ## 段階1 雛形とローカルモード
 
@@ -102,7 +102,9 @@ AIには権限がなく、人がやる必要があること。上から順にや
 - [x] Workerの `/api/*` をGitHub Contents API・tarball・compare で実装する。完了条件: GitHub APIをモックした単体テストが通る
   - compare は使わず、Trees API の一覧の `sha` を控えと比べる（`DECISIONS.md`）。`src/worker/github.ts`（GitHub の包み）と `api.ts`（`/api/pages`・`/api/pages/<path>`・`/api/files/<path>`・`/api/archive`）。GitHub の 409/422/404 は、いまの中身を GET して `{ error, current }` の 409 に写す。正しい sha でも 409 なら一度だけ試し直す。ドットで始まる区切りは 400（ローカルモードも。`src/shared/api-path.ts` で共有）。
   - `GET /api/pages` に `head`、`/api/archive` に `x-head`（ブランチの先頭のコミット）。次のタスクで、ブラウザが tarball を展開して `blobShaOf` で sha を計算し、一覧と突き合わせる。
-- [ ] ブラウザの初回読み込み（tarball）と差分更新（compare）をWorker経由でつなぐ。完了条件: モックで、初回は全件、2回目は差分だけ読むテストが通る
+- [x] ブラウザの初回読み込み（tarball）と差分更新（compare）をWorker経由でつなぐ。完了条件: モックで、初回は全件、2回目は差分だけ読むテストが通る
+  - compare は使わず、tarball の各ファイルの sha を計算して一覧と突き合わせる。`head` は比べず、一覧に `head` があるかで tarball の有無を見る。控えが空か読み直しが300件を超えるときに tarball を使う（`DECISIONS.md` 2026-09-28）。`src/client/tar.ts`（自前の tar の読み手）、`ApiSource.archive`、`Kb.sync`。通しのテストは `source.test.ts` の「Worker 経由の取り込み」。
+  - ローカルモードは1件ずつのまま。tarball の経路は `e2e/archive.spec.ts` で `page.route` を使って Chromium で通している。本物の `git archive` の出力を読めるか（`.gitattributes` の変換、添付の量を含む）は次のタスクで本番を見て確かめる。
 - [ ] 本番へデプロイして、Accessを通って自分のknowledgeを開けることを確かめる。完了条件: 人が確認する（ここで止まって報告する）
 
 ## 段階7 取り込み

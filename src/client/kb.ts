@@ -4,14 +4,25 @@
 // 差分はその後に取って索引に反映する（DECISIONS.md 2026-09-27「起動時は解析結果だけを読む」）。
 // バックリンクと 2 hop link は、リンクを読み終えてから引くように、index ではなくここの backlinks/twoHop を使う
 
+import { blobShaOf } from "../shared/api-path";
 import { KbIndex, type TwoHop } from "./kb-index";
 import { type Page, type PageMeta, parsePage, splitFrontMatter, toMeta } from "./page";
 import { SETTINGS_NAME, type Settings, parseSettings } from "./settings";
-import { NotFoundError, type Source } from "./source";
+import { type ArchiveFile, NotFoundError, type Source } from "./source";
 import type { FileStore, StoredFile } from "./store";
 
 // 解析の直し方を変えて、控えの解析結果を作り直したいときに上げる
 export const PARSER_VERSION = 1;
+
+// 読み直すファイルがこれより多ければ、控えがあっても tarball で取る。
+// tarball の後で一覧と合わないファイルがこれより多ければ、1件ずつ読まずに投げる（GitHub の API の上限を使い切らないため）。
+// GitHub の上限（1時間5,000回）の6%として置いた値で、計測で決めたものではない（DECISIONS.md 2026-09-28）
+export const ARCHIVE_THRESHOLD = 300;
+
+// Worker の GET /api/pages/<path> と同じ既定の設定（BOM を外す）にして、どちらの経路で読んでも控えの中身をそろえる
+const decoder = new TextDecoder();
+
+type Take = (file: StoredFile) => Promise<void>;
 
 export interface SyncResult {
   // 今回読み直した path
@@ -152,13 +163,16 @@ export class Kb {
   }
 
   // 一覧の sha と解析結果の sha を比べ、違うものと新しいものだけ読んで解析し、索引に反映する。一覧にないものは消す。
-  // 読むのは同時に concurrency 件まで。読めた分は batch 件ごとに控えへ書く。
+  // 控えが空か、読むものが archiveThreshold 件を超えれば、取り込み元の tarball（あれば）で取る。tarball の各ファイルは
+  // sha を計算して一覧の sha と合うものだけ使い、合わないものと tarball にないものは1件ずつ読む（DECISIONS.md 2026-09-28）。
+  // 1件ずつ読むのは同時に concurrency 件まで。読めた分は batch 件ごとに控えへ書く。
   // 一覧に出たあとで消えたファイル（NotFoundError）は「消えた」として扱う。
   // 途中で失敗しても、反映した分は解析結果のレコードに書いてから投げるので、次回はそこから続けられる
-  async sync(source: Source, { concurrency = 8, batch = 200 } = {}): Promise<SyncResult> {
+  async sync(source: Source, { concurrency = 8, batch = 200, archiveThreshold = ARCHIVE_THRESHOLD } = {}): Promise<SyncResult> {
     const [listed] = await Promise.all([source.list(), this.loadLinks()]);
     const listedPaths = new Set(listed.map((p) => p.path));
-    const toFetch = listed.filter((p) => this.byPath.get(p.path)?.sha !== p.sha).map((p) => p.path);
+    // path → 一覧の sha。読み終えたものから消す
+    const wanted = new Map(listed.filter((p) => this.byPath.get(p.path)?.sha !== p.sha).map((p) => [p.path, p.sha]));
     const removed = [...this.byPath.keys()].filter((p) => !listedPaths.has(p));
     const fetched: string[] = [];
 
@@ -169,32 +183,30 @@ export class Kb {
       await this.store.put(files);
       for (const f of files) this.apply(f);
     };
+    const take: Take = async (file) => {
+      pending.push(file);
+      fetched.push(file.path);
+      wanted.delete(file.path);
+      if (pending.length >= batch) await flush();
+    };
 
-    let next = 0;
-    let failed: unknown = null;
-    const worker = async () => {
-      while (next < toFetch.length && failed === null) {
-        const path = toFetch[next++];
-        try {
-          const file = await source.read(path);
-          pending.push({ path, sha: file.sha, content: file.content });
-          fetched.push(path);
-          if (pending.length >= batch) await flush();
-        } catch (e) {
-          if (e instanceof NotFoundError) {
-            removed.push(path);
-            continue;
-          }
-          failed ??= e;
+    try {
+      const bulk = wanted.size > 0 && (this.byPath.size === 0 || wanted.size > archiveThreshold);
+      const archive = bulk && source.archive ? await source.archive((p) => wanted.has(p)) : null;
+      if (archive) {
+        await takeArchive(archive, wanted, take, batch);
+        if (wanted.size > archiveThreshold) {
+          throw new Error(`tarball の中身が一覧と合わないファイルが ${wanted.size} 件ある（${archiveThreshold} 件を超えるので1件ずつは読まない）`);
         }
       }
-    };
-    await Promise.all(Array.from({ length: Math.max(1, Math.min(concurrency, toFetch.length)) }, worker));
-    await flush();
-    if (failed !== null) {
+      // 残り（tarball がない取り込み元では全部）を1件ずつ読む
+      await readEach(source, [...wanted.keys()], take, removed, concurrency);
+      await flush();
+    } catch (e) {
       // 反映した分を残す。これ自体が失敗しても、伝えるのは元の失敗
+      await flush().catch(() => undefined);
       if (fetched.length > 0) await this.saveIndex().catch(() => undefined);
-      throw failed;
+      throw e;
     }
 
     await this.store.remove(removed);
@@ -269,4 +281,53 @@ export class Kb {
     const file = await this.store.get(found[1].path);
     return file ? parsePage(file) : null;
   }
+}
+
+// tarball から来たファイルを batch 件ずつためて sha を計算し、一覧の sha（wanted）と同じものだけ take する。
+// sha は変換の前のバイト列で計算するので、BOM のあるファイルも一覧と合う。
+// ストリームが途中で投げたときも、ためていた分（最後まで読み切ったファイル）は確かめて take してから投げ直す
+async function takeArchive(files: AsyncIterable<ArchiveFile>, wanted: Map<string, string>, take: Take, batch: number): Promise<void> {
+  let buffered: ArchiveFile[] = [];
+  const check = async () => {
+    const got = buffered;
+    buffered = [];
+    const shas = await Promise.all(got.map((f) => blobShaOf(f.bytes)));
+    for (let i = 0; i < got.length; i++) {
+      if (wanted.get(got[i].path) === shas[i]) await take({ path: got[i].path, sha: shas[i], content: decoder.decode(got[i].bytes) });
+    }
+  };
+  try {
+    for await (const f of files) {
+      buffered.push(f);
+      if (buffered.length >= batch) await check();
+    }
+  } catch (e) {
+    await check().catch(() => undefined);
+    throw e;
+  }
+  await check();
+}
+
+// paths を同時に concurrency 件まで1件ずつ読む。NotFoundError は removed に入れる。
+// ほかの失敗は、それ以降を読まずに、読みかけの分を待ってから最初の失敗を投げる
+async function readEach(source: Source, paths: string[], take: Take, removed: string[], concurrency: number): Promise<void> {
+  let next = 0;
+  let failed: unknown = null;
+  const worker = async () => {
+    while (next < paths.length && failed === null) {
+      const path = paths[next++];
+      try {
+        const file = await source.read(path);
+        await take({ path, sha: file.sha, content: file.content });
+      } catch (e) {
+        if (e instanceof NotFoundError) {
+          removed.push(path);
+          continue;
+        }
+        failed ??= e;
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(concurrency, paths.length)) }, worker));
+  if (failed !== null) throw failed;
 }

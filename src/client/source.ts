@@ -1,11 +1,19 @@
 // 取り込み元。ページの一覧（path と sha）と1ページの取得ができればよい。
-// いまは /api/pages を使う ApiSource だけで、tarball と compare を使う取り込み元は段階6で足す。
+// ApiSource は /api/pages を使い、一覧に head があれば（Worker）初回の取り込みに /api/archive の tarball も使う。
+// ローカルモードの一覧には head がないので、tarball は取らずに1件ずつ読む
 
 import type { StoredFile } from "./store";
+import { readTar } from "./tar";
 
 export interface WriteOptions {
   // タブを閉じるときの保存。ページが消えても送り終える
   keepalive?: boolean;
+}
+
+export interface ArchiveFile {
+  // リポジトリのルートからのパス
+  path: string;
+  bytes: Uint8Array;
 }
 
 export interface Source {
@@ -16,6 +24,8 @@ export interface Source {
   read(path: string): Promise<StoredFile>;
   // 書き込み。sha は編集を始めたときの値で、新しいページは null。message はコミットメッセージ。新しい sha を返す
   write(path: string, content: string, sha: string | null, message: string, options?: WriteOptions): Promise<{ sha: string }>;
+  // 全ファイルをまとめて取る（tarball）。want が true のファイルだけ中身を返す。持たない取り込み元（ローカルモード）は null
+  archive?(want: (path: string) => boolean): Promise<AsyncIterable<ArchiveFile> | null>;
 }
 
 export class NotFoundError extends Error {}
@@ -44,30 +54,42 @@ function asFile(v: unknown): StoredFile | null {
   return { path: v.path, sha: v.sha, content: v.content };
 }
 
-async function readJson(res: Response): Promise<unknown> {
-  if (!res.ok) {
-    let message = `${res.status}`;
-    let body: unknown = null;
-    try {
-      body = await res.json();
-      if (isRecord(body) && typeof body.error === "string") message = `${res.status} ${body.error}`;
-    } catch {
-      // 本文がJSONでなければ状態コードだけ
-    }
-    if (res.status === 404) throw new NotFoundError(`APIの応答が異常: ${message}`);
-    if (res.status === 409) {
-      // current: null は「相手が消した」。欠けているか形が違うなら「読めない」（undefined）で、控えには触らせない
-      const current = isRecord(body) && "current" in body ? (body.current === null ? null : (asFile(body.current) ?? undefined)) : undefined;
-      throw new ConflictError(message, current);
-    }
-    throw new Error(`APIの応答が異常: ${message}`);
+// 異常な応答を投げる形にする。本文の error を文に含める
+async function failure(res: Response): Promise<Error> {
+  let message = `${res.status}`;
+  let body: unknown = null;
+  try {
+    body = await res.json();
+    if (isRecord(body) && typeof body.error === "string") message = `${res.status} ${body.error}`;
+  } catch {
+    // 本文がJSONでなければ状態コードだけ
   }
+  if (res.status === 404) return new NotFoundError(`APIの応答が異常: ${message}`);
+  if (res.status === 409) {
+    // current: null は「相手が消した」。欠けているか形が違うなら「読めない」（undefined）で、控えには触らせない
+    const current = isRecord(body) && "current" in body ? (body.current === null ? null : (asFile(body.current) ?? undefined)) : undefined;
+    return new ConflictError(message, current);
+  }
+  return new Error(`APIの応答が異常: ${message}`);
+}
+
+async function readJson(res: Response): Promise<unknown> {
+  if (!res.ok) throw await failure(res);
   return res.json();
+}
+
+// tarball のエントリから先頭のディレクトリ（GitHub の tarball は owner-repo-<短いSHA>/ の下に全部入っている）を外す。
+// 先頭のディレクトリ自身は null
+function stripTop(path: string): string | null {
+  const slash = path.indexOf("/");
+  return slash < 0 || slash === path.length - 1 ? null : path.slice(slash + 1);
 }
 
 export class ApiSource implements Source {
   // 一覧で受け取った dir。新しいページの作成で使う
   private knownDir: string | null = null;
+  // 一覧で受け取った head。あれば /api/archive がある（Worker）。ローカルモードは null
+  private knownHead: string | null = null;
 
   constructor(private readonly fetchFn: typeof fetch = (input, init) => fetch(input, init)) {}
 
@@ -81,12 +103,32 @@ export class ApiSource implements Source {
     const pages = isRecord(body) ? body.pages : undefined;
     if (!Array.isArray(pages)) throw new Error("APIの応答が異常: pages がない");
     if (isRecord(body) && typeof body.dir === "string") this.knownDir = body.dir;
+    this.knownHead = isRecord(body) && typeof body.head === "string" ? body.head : null;
     return pages.map((p: unknown) => {
       if (!isRecord(p) || typeof p.path !== "string" || typeof p.sha !== "string") {
         throw new Error("APIの応答が異常: 一覧の項目に path と sha がない");
       }
       return { path: p.path, sha: p.sha };
     });
+  }
+
+  // tarball を流しながら展開する。一覧に head がなければ（ローカルモード）何も取らずに null。
+  // sync は archive の前に必ず list を呼ぶので、その順序に頼る。
+  // tarball と一覧のコミットが同じかは見ない。受け取った側が sha を計算して一覧と突き合わせる（DECISIONS.md 2026-09-28）
+  async archive(want: (path: string) => boolean): Promise<AsyncIterable<ArchiveFile> | null> {
+    if (this.knownHead === null) return null;
+    if (typeof DecompressionStream === "undefined") throw new Error("このブラウザは gzip を展開できない（DecompressionStream がない）");
+    const res = await this.fetchFn("/api/archive");
+    if (!res.ok) throw await failure(res);
+    if (!res.body) throw new Error("APIの応答が異常: tarball の本文がない");
+    const stream = res.body.pipeThrough(new DecompressionStream("gzip"));
+    const entries = readTar(stream, (p) => {
+      const path = stripTop(p);
+      return path !== null && want(path);
+    });
+    return (async function* () {
+      for await (const e of entries) yield { path: stripTop(e.path)!, bytes: e.bytes };
+    })();
   }
 
   // 要求した path 以外の項目は控えに入れない
