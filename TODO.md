@@ -16,9 +16,11 @@ AIには権限がなく、人がやる必要があること。上から順にや
 - [x] シークレットウィンドウで `https://web-b2.<サブドメイン>.workers.dev/` を開き、Cloudflareのログイン画面が出ることを確かめる。出なければトークンを登録せずに止める
 - [x] Workerの雛形のPRのプレビュー（またはマージ後の本番）で、ログインしてから `/api/whoami` を開き、表示された `access`・`jwtHeader`・`cookie` の true/false を `TODO.md` か会話で伝える。値は出ず、有無だけが出る
   - 結果は `access` が false、`jwtHeader` と `cookie` が true。
-- [ ] Workerの Settings > Variables and Secrets で、`ACCESS_TEAM_DOMAIN`（`https://<チーム名>.cloudflareaccess.com`）と `ACCESS_AUD` を Secret として登録する。AUDは Zero Trust の Access > Applications でこのWorkerのアプリを開くと「Application Audience (AUD) Tag」として出る（one-click Access のアプリがそこに並ぶかは未確認）。見つからなければ、ログイン後にブラウザの開発者ツールで `CF_Authorization` クッキーのJWTを base64url で解読し、本文の `aud` を使う
-- [ ] 登録後にログインして `/api/pages` を開き、401ではなく501（`{"error":"まだない"}`）が返ることを確かめる。401ならトークンを登録せずに止める
+- [x] Workerの Settings > Variables and Secrets で、`ACCESS_TEAM_DOMAIN`（`https://<チーム名>.cloudflareaccess.com`）と `ACCESS_AUD` を Secret として登録する。AUDは Zero Trust の Access > Applications でこのWorkerのアプリを開くと「Application Audience (AUD) Tag」として出る（one-click Access のアプリがそこに並ぶかは未確認）。見つからなければ、ログイン後にブラウザの開発者ツールで `CF_Authorization` クッキーのJWTを base64url で解読し、本文の `aud` を使う
+- [x] 登録後にログインして `/api/pages` を開き、401ではなく501（`{"error":"まだない"}`）が返ることを確かめる。401ならトークンを登録せずに止める
   - Secret と AUD を登録しても401のままだった。原因は、Previews Base のシークレットが既存のプレビューに反映されないことだった。調べるために401の本文へ一時的に入れた理由の表示は消した。
+  - 本番でも401だったのは、プロダクション側がシークレットではなくテキストの変数で登録されていて、`wrangler deploy` で消えたためと推測している（未確認）。シークレットで登録し直すと `{"error":"まだない"}` になった（2026-09-27）。AUDは、ログイン画面への転送先URLの `kid=` の値と同じだった。
+  - 以後、Workerの設定値は「設定」タブで、プロダクションと Previews Base の両方に、タイプを「シークレット」にして登録する。Previews Base のシークレットは、登録した後に作られたプレビュー（新しいブランチの最初のpush）にしか入らない。
 - [ ] GitHubの Settings > Developer settings > Personal access tokens > Fine-grained tokens で、Repository access を知識庫リポジトリだけ、Repository permissions を Contents: Read and write だけにしたトークンを作る。期限の日を控える
 - [ ] Workerの Settings > Variables and Secrets で、`GITHUB_TOKEN` と `KB_REPO`（`owner/repo`）を Secret として登録する。公開リポジトリの wrangler 設定には書かない
 
