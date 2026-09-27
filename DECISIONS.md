@@ -2,6 +2,12 @@
 
 新しいものを上に足す。`SPEC.md` を変えるときは先にここに書く。
 
+## 2026-09-27 IndexedDBには索引ではなくファイルの中身を置き、索引は起動のたびに作り直す
+
+IndexedDBに保存するのは、ページごとの `path`・`sha`・中身そのものにする。索引（`name`→ページ、`title`→`name`、リンク先→リンク元）は保存せず、起動のたびに控えから解析して作る。
+
+編集には front matter を含む元の文字列が要るので、中身はどのみち控えに置く。索引も置くと同じ情報を二重に持ち、Markdownの解析を直したときに古い索引を捨てる仕組みが別に要る。中身だけなら `sha` の比較で差分を取るだけでよい。1万ページの解析と索引作りが2回目以降の起動の目標（100ms）に収まらないと計測で分かったら、解析結果も控える形に変える。
+
 ## 2026-09-27 /api/* ではAccessのJWTをWorkerで検証する
 
 `ctx.access` がないリクエストを401にするつもりだったが、静的ファイルを持つWorkerは内部のrouter Workerの後ろで動き、routerは `ctx.access` をこちらのWorkerに渡さない（https://developers.cloudflare.com/workers/configuration/cloudflare-access/ 、取得日: 2026-09-27）。一時的に入れた `/api/whoami` で本番のプレビューを確かめると、`ctx.access` はなく、`Cf-Access-Jwt-Assertion` ヘッダーと `CF_Authorization` クッキーは届いていた。

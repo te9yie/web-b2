@@ -47,6 +47,8 @@ export class MemoryStore implements FileStore {
 
 const FILES = "files";
 const META = "meta";
+// object store の構成を変えるときに上げる
+const VERSION = 1;
 
 function request<T>(r: IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -68,13 +70,20 @@ export class IdbStore implements FileStore {
 
   // データベースを開く。なければ files（path が鍵）と meta の二つの object store を作る
   static async open(name = "web-b2", factory: IDBFactory = indexedDB): Promise<IdbStore> {
-    const r = factory.open(name, 1);
+    const r = factory.open(name, VERSION);
     r.onupgradeneeded = () => {
       const db = r.result;
       if (!db.objectStoreNames.contains(FILES)) db.createObjectStore(FILES, { keyPath: "path" });
       if (!db.objectStoreNames.contains(META)) db.createObjectStore(META);
     };
-    return new IdbStore(await request(r));
+    // 古い版を開いたままの別のタブがあると、版を上げた open は blocked のまま成功も失敗もしない。待ち続けずに失敗にする
+    const blocked = new Promise<never>((_, reject) => {
+      r.onblocked = () => reject(new Error("別のタブが古い版のデータベースを開いている"));
+    });
+    const db = await Promise.race([request(r), blocked]);
+    // 別のタブが版を上げようとしたら、こちらは閉じて邪魔をしない。以後この IdbStore は使えないので、次の起動で開き直す
+    db.onversionchange = () => db.close();
+    return new IdbStore(db);
   }
 
   all(): Promise<StoredFile[]> {

@@ -46,8 +46,8 @@ AIには権限がなく、人がやる必要があること。上から順にや
   - `src/client/kb-index.ts` の `KbIndex`。`set`/`remove` で1ページずつ差し替えられるので、差分更新でも作り直さない。逆引きはリンクに書かれた文字のまま持ち、`backlinks(ref)` で name と title の両方を引く。2 hop link はリンク先を解決してからまとめるので、name で書いたリンクと title で書いたリンクは同じグループになる。
   - 並びは `byUpdatedDesc`（`updated` の新しい順、同じなら `name` の降順、`updated` なしは最後）にそろえた。一覧と検索でも同じものを使う。
 - [x] IndexedDBへの保存と、変わったファイルだけ読み直す仕組みを作る。完了条件: 2回目の読み込みで全ファイルを取り直さない単体テストが通る
-  - `src/client/store.ts`（`FileStore`。IndexedDBの `IdbStore` とテスト用の `MemoryStore`）と `src/client/sync.ts`（`sync(store, source)`）。控えには解析結果ではなく `path`・`sha`・中身をそのまま置く。編集に front matter を含む元の文字列が要るのと、解析を直しても取り直さずに済むため。
-  - 取り込み元は `Source`（一覧と1ページの取得）で差し替えられる。いまは `/api/pages` を使う `ApiSource` だけで、段階6で tarball と compare のものを足す。`store.getMeta/setMeta` は最後に見たコミットを置く場所として先に用意した。
+  - `src/client/store.ts`（`FileStore`。IndexedDBの `IdbStore` とテスト用の `MemoryStore`）と `src/client/sync.ts`（`sync(store, source)`）。控えには解析結果ではなく `path`・`sha`・中身をそのまま置く（`DECISIONS.md` 2026-09-27）。読めた分は200件ごとに控えへ書き、途中で失敗しても次回はそこから続く。一覧に出たあとで消えたファイル（404）は「消えた」として扱う。
+  - 取り込み元は `Source`（一覧と1ページの取得）で差し替えられる。いまは `/api/pages` を使う `ApiSource` だけで、段階6で tarball と compare のものを足す。`store.getMeta/setMeta` は最後に見たコミットを置く場所として先に用意した。差分を取れないとき（オフラインなど）は `main.ts` が控えだけで索引を作る。
   - `IdbStore` は単体テストでは動かせない（Node.jsにIndexedDBがない）ので、`e2e/sync.spec.ts` で2回目の読み込みに `/api/pages/<path>` のリクエストが出ないことを確かめている。
 - [ ] 1万ページの合成データで計測し、`SPEC.md` の目標に収まることを確かめる。完了条件: 計測結果を `docs/perf.md` に書く
 
@@ -73,6 +73,7 @@ AIには権限がなく、人がやる必要があること。上から順にや
 ## 段階6 GitHub中継
 
 - [ ] Workerの `/api/*` をGitHub Contents API・tarball・compare で実装する。完了条件: GitHub APIをモックした単体テストが通る
+  - 着手前に決めること。差分の取り方を、`SPEC.md` どおり最後に見たコミットからの compare にするか、いまの `sync` と同じ「全件の一覧の `sha` を控えと比べる」（trees API）にするか。tarball のエントリには blob の `sha` がないので、一覧と tarball を同じコミットに固定する（`GET /api/pages` にコミットの `sha` を含めるなど）か、ブラウザで `blob <バイト数>\0` 付きの SHA-1 を計算する。`Source` に一括読み（tarball）の口が要る。決めたら `DECISIONS.md` に書く。
   - `/api/files/<path>` と `/api/pages/<path>` で、ドットで始まる区切り（`.git`、`.github` など）を含むパスは400にする。ローカルモード（`src/server/local.ts`）にも同じ制限を入れ、両方のテストで確かめる。
 - [ ] ブラウザの初回読み込み（tarball）と差分更新（compare）をWorker経由でつなぐ。完了条件: モックで、初回は全件、2回目は差分だけ読むテストが通る
 - [ ] 本番へデプロイして、Accessを通って自分のknowledgeを開けることを確かめる。完了条件: 人が確認する（ここで止まって報告する）
