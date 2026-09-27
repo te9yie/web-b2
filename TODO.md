@@ -106,7 +106,9 @@ AIには権限がなく、人がやる必要があること。上から順にや
   - compare は使わず、tarball の各ファイルの sha を計算して一覧と突き合わせる。`head` は比べず、一覧に `head` があるかで tarball の有無を見る。控えが空か読み直しが300件を超えるときに tarball を使う（`DECISIONS.md` 2026-09-28）。`src/client/tar.ts`（自前の tar の読み手）、`ApiSource.archive`、`Kb.sync`。通しのテストは `source.test.ts` の「Worker 経由の取り込み」。
   - ローカルモードは1件ずつのまま。tarball の経路は `e2e/archive.spec.ts` で `page.route` を使って Chromium で通している。手元の `git archive`（git 2.53.0）の出力は読めて sha も合い、`eol=crlf` は CRLF に変換されることを確かめた（`src/client/testdata/git-archive.tar.gz`。CRLF は LF に戻して突き合わせる）。1件ずつ読むものが300件を超えると、起動ごとに300件ずつ読んで進む。
   - 次のタスクで確かめるのは、GitHub の tarball が同じ形か、知識庫リポジトリに `export-subst`・`ident`・Git LFS の指定があるか、添付ファイルの量の三つ。
-- [ ] 本番へデプロイして、Accessを通って自分のknowledgeを開けることを確かめる。完了条件: 人が確認する（ここで止まって報告する）
+- [x] 本番へデプロイして、Accessを通って自分のknowledgeを開けることを確かめる。完了条件: 人が確認する（ここで止まって報告する）
+  - 2026-09-28 に人が確認した。PR #20 のマージ後の本番で Access を通って知識庫が開け、`/api/pages/<path>` が大量に出ることはなかった。GitHub の tarball も手元の `git archive` と同じく読めて sha が一覧と合っている（推測。1件ずつ読み直した件数は数えていない）。知識庫リポジトリに `.gitattributes`・Git LFS・大きな添付ファイルはなく、前のタスクの補足にある `export-subst`・`ident`・LFS の指定と添付ファイルの量は気にしなくてよい。
+  - アクセスのたびに `/favicon.ico` へのリクエストが出ていたので、`index.html` に `<link rel="icon" href="data:,">` を足して止めた。アイコンは「完成後」の PWA のタスクで用意する。
 
 ## 段階7 取り込み
 
