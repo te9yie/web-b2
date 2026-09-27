@@ -30,6 +30,8 @@ export interface Router {
   current(): Route;
   // pushState で遷移して描画する
   navigate(path: string): void;
+  // 履歴を積まずに URL を差し替えて描画する（検索語の変化など）
+  replace(path: string): void;
 }
 
 // onRoute は最初と遷移のたびに呼ばれる
@@ -40,6 +42,11 @@ export function startRouter(onRoute: (route: Route) => void): Router {
     history.pushState(null, "", path);
     // 新しいページは先頭から見せる（戻る・進むはブラウザが位置を戻す）
     window.scrollTo(0, 0);
+    onRoute(current());
+  };
+  const replace = (path: string) => {
+    if (path === location.pathname + location.search) return;
+    history.replaceState(null, "", path);
     onRoute(current());
   };
   window.addEventListener("popstate", () => onRoute(current()));
@@ -57,5 +64,5 @@ export function startRouter(onRoute: (route: Route) => void): Router {
     navigate(href);
   });
   onRoute(current());
-  return { current, navigate };
+  return { current, navigate, replace };
 }

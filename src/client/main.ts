@@ -1,12 +1,14 @@
 import { Kb } from "./kb";
 import { type Route, startRouter } from "./router";
+import { search } from "./search";
 import { ApiSource } from "./source";
 import { type FileStore, IdbStore, MemoryStore } from "./store";
-import { beginRender, escapeHtml, showList, showPage, statusText } from "./view";
+import { beginRender, escapeHtml, showAll, showPage, stale, statusText } from "./view";
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
-app.innerHTML = `<main id="view"><p id="status">読み込み中</p></main>`;
+app.innerHTML = `<header id="top"><input id="q" type="search" placeholder="検索" autocomplete="off" aria-label="検索"></header><main id="view"><p id="status">読み込み中</p></main>`;
 const view = document.querySelector<HTMLElement>("#view")!;
+const q = document.querySelector<HTMLInputElement>("#q")!;
 
 function message(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -28,6 +30,10 @@ function nextFrame(): Promise<void> {
   return new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
 }
 
+function allUrl(query: string): string {
+  return query === "" ? "/all" : `/all?q=${encodeURIComponent(query)}`;
+}
+
 // 起動。控えの解析結果から索引を作って先に出し、逆引きを作り、その後で差分を取って反映する。
 // performance.measure の open・reverse・sync は perf/ の計測で読む
 async function start(): Promise<void> {
@@ -41,21 +47,70 @@ async function start(): Promise<void> {
 
   // 差分を取る前の一覧には、控えの状態を添える。取り終えたら結果に差し替える
   let note = kb.rebuilt ? "控えから解析し直した。差分を確認中" : "差分を確認中";
+
+  // 一覧と検索結果。本文は最初の検索のときに読む（読み終わるまではタイトルだけで探し、読めたら描き直す）
+  let bodies: ReadonlyMap<string, string> | null = null;
+  const showResults = (query: string, seq: number) => {
+    const bodyOf = (path: string) => bodies?.get(path) ?? "";
+    showAll(kb, view, note, query, search(kb.index.pages.values(), query, bodyOf), query !== "" && bodies === null);
+    if (query !== "" && bodies === null) {
+      void kb.bodies().then(
+        (map) => {
+          bodies = map;
+          if (!stale(seq)) showAll(kb, view, note, query, search(kb.index.pages.values(), query, bodyOf));
+        },
+        (e) => console.warn(`本文を読めないのでタイトルだけで探す: ${message(e)}`),
+      );
+    }
+  };
+
   const render = (route: Route) => {
     const seq = beginRender();
+    // 検索欄の中身は URL に合わせる。/all 以外では空
+    const query = route.kind === "all" ? route.q : "";
+    if (document.activeElement !== q) q.value = query;
     switch (route.kind) {
       case "page":
         void showPage(kb, route.name, view, seq);
         break;
       case "home":
       case "all":
-        showList(kb, view, note);
+        showResults(query, seq);
         break;
       default:
         view.innerHTML = `<h1>web-b2</h1><p>このURLはまだ扱えない: ${escapeHtml(route.kind === "unknown" ? route.path : route.kind)}</p>`;
     }
   };
+  // 戻る・進むのときは、欄にフォーカスがあっても URL に合わせる（render は入力中の欄を触らない）
+  window.addEventListener("popstate", () => q.blur());
   const router = startRouter(render);
+
+  // 検索欄。入力に合わせて /all?q= に移って結果を差し替える。IME の変換中は何もしない。
+  // /all にいるあいだは履歴を積まない（replace）。
+  // 全文の走査は1万ページで200ms（docs/perf.md）かかるので、打鍵ごとではなく次のフレームで最後の値だけ検索する
+  let composing = false;
+  let scheduled = false;
+  const runSearch = () => {
+    if (scheduled) return;
+    scheduled = true;
+    requestAnimationFrame(() => {
+      scheduled = false;
+      const url = allUrl(q.value.trim());
+      if (router.current().kind === "all") router.replace(url);
+      else router.navigate(url);
+    });
+  };
+  q.addEventListener("compositionstart", () => {
+    composing = true;
+  });
+  q.addEventListener("compositionend", () => {
+    composing = false;
+    runSearch();
+  });
+  q.addEventListener("input", (e) => {
+    if (composing || (e as InputEvent).isComposing) return;
+    runSearch();
+  });
 
   await nextFrame();
   performance.mark("reverse:start");
@@ -75,8 +130,9 @@ async function start(): Promise<void> {
   performance.measure("sync", "sync:start");
   // 何か変わったときだけ表示を作り直す（変わっていないのに作り直すと、図が描き直されて選択が消える。段階5では編集中の内容も）。
   // 変わっていなければ一覧の状態の文だけ差し替える
-  if (changed) render(router.current());
-  else {
+  const route = router.current();
+  if (changed) render(route);
+  else if (route.kind === "home" || (route.kind === "all" && route.q === "")) {
     const status = document.querySelector("#status");
     if (status) status.textContent = statusText(kb, note);
   }
