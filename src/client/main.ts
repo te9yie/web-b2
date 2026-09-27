@@ -243,6 +243,7 @@ async function start(): Promise<void> {
   // 差分を取れないとき（オフライン、Accessのセッション切れ）は控えの索引のまま使い、その旨を出す
   performance.mark("sync:start");
   let changed = false;
+  const revision = kb.revision;
   try {
     const result = await kb.sync(source);
     note = `${result.fetched.length}件を読み直し`;
@@ -251,6 +252,8 @@ async function start(): Promise<void> {
     markSynced();
   } catch (e) {
     note = `差分を取れなかったので控えを表示: ${message(e)}`;
+    // 途中で失敗しても、それまでに読んだ分は索引に入っている（tarball が途中で切れた初回など）ので描き直す
+    changed = kb.revision !== revision;
   }
   performance.measure("sync", "sync:start");
   // 何か変わったときだけ表示を作り直す（変わっていないのに作り直すと、図が描き直されて選択が消える。段階5では編集中の内容も）。

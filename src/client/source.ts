@@ -3,7 +3,7 @@
 // ローカルモードの一覧には head がないので、tarball は取らずに1件ずつ読む
 
 import type { StoredFile } from "./store";
-import { readTar } from "./tar";
+import { TarError, readTar } from "./tar";
 
 export interface WriteOptions {
   // タブを閉じるときの保存。ページが消えても送り終える
@@ -127,7 +127,14 @@ export class ApiSource implements Source {
       return path !== null && want(path);
     });
     return (async function* () {
-      for await (const e of entries) yield { path: stripTop(e.path)!, bytes: e.bytes };
+      try {
+        for await (const e of entries) yield { path: stripTop(e.path)!, bytes: e.bytes };
+      } catch (e) {
+        if (e instanceof TarError) throw e;
+        // DecompressionStream の TypeError は文が「TypeError」だけのことがあり、どこで失敗したか分からないので包む
+        const detail = e instanceof Error ? `${e.name}${e.message ? `: ${e.message}` : ""}` : String(e);
+        throw new Error(`tarball の読み込みが途中で失敗した: ${detail}`, { cause: e });
+      }
     })();
   }
 

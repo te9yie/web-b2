@@ -15,7 +15,8 @@ import type { FileStore, StoredFile } from "./store";
 export const PARSER_VERSION = 1;
 
 // 読み直すファイルがこれより多ければ、控えがあっても tarball で取る。
-// tarball の後で一覧と合わないファイルがこれより多ければ、1件ずつ読まずに投げる（GitHub の API の上限を使い切らないため）。
+// tarball の後で一覧と合わないファイルがこれより多ければ、このうち先頭のこの件数だけを1件ずつ読んでから投げる
+// （GitHub の API の上限を使い切らないため。起動のたびにこの件数ずつ進む）。
 // GitHub の上限（1時間5,000回）の6%として置いた値で、計測で決めたものではない（DECISIONS.md 2026-09-28）
 export const ARCHIVE_THRESHOLD = 300;
 
@@ -42,6 +43,8 @@ export class Kb {
   private links: Promise<void> | null;
   // 検索用の本文。bodies() で読むまでは null
   private bodyMap: Map<string, string> | null = null;
+  // 索引にページを入れたり消したりするたびに増える。sync が途中で失敗しても、反映した分があったかをこれで見る
+  private revisionCount = 0;
   private bodiesPromise: Promise<ReadonlyMap<string, string>> | null = null;
   // bodies() で読んでいるあいだに変わった本文。null は消えたページ
   private pendingBodies: Map<string, string | null> | null = null;
@@ -139,7 +142,12 @@ export class Kb {
     this.index.set(meta);
   }
 
+  get revision(): number {
+    return this.revisionCount;
+  }
+
   private apply(file: StoredFile): void {
+    this.revisionCount++;
     const page = parsePage(file);
     const meta = toMeta(page);
     this.byPath.set(file.path, meta);
@@ -148,6 +156,7 @@ export class Kb {
   }
 
   private drop(path: string): void {
+    this.revisionCount++;
     this.noteBody(path, null);
     const old = this.byPath.get(path);
     if (!old) return;
@@ -165,6 +174,7 @@ export class Kb {
   // 一覧の sha と解析結果の sha を比べ、違うものと新しいものだけ読んで解析し、索引に反映する。一覧にないものは消す。
   // 控えが空か、読むものが archiveThreshold 件を超えれば、取り込み元の tarball（あれば）で取る。tarball の各ファイルは
   // sha を計算して一覧の sha と合うものだけ使い、合わないものと tarball にないものは1件ずつ読む（DECISIONS.md 2026-09-28）。
+  // 1件ずつ読むものが archiveThreshold 件を超えたら、先頭の archiveThreshold 件だけ読んでから投げる。
   // 1件ずつ読むのは同時に concurrency 件まで。読めた分は batch 件ごとに控えへ書く。
   // 一覧に出たあとで消えたファイル（NotFoundError）は「消えた」として扱う。
   // 途中で失敗しても、反映した分は解析結果のレコードに書いてから投げるので、次回はそこから続けられる
@@ -195,8 +205,12 @@ export class Kb {
       const archive = bulk && source.archive ? await source.archive((p) => wanted.has(p)) : null;
       if (archive) {
         await takeArchive(archive, wanted, take, batch);
-        if (wanted.size > archiveThreshold) {
-          throw new Error(`tarball の中身が一覧と合わないファイルが ${wanted.size} 件ある（${archiveThreshold} 件を超えるので1件ずつは読まない）`);
+        const rest = wanted.size;
+        if (rest > archiveThreshold) {
+          await readEach(source, [...wanted.keys()].slice(0, archiveThreshold), take, removed, concurrency);
+          throw new Error(
+            `tarball の中身が一覧と合わないファイルが ${rest} 件ある。1件ずつ読むのは起動ごとに ${archiveThreshold} 件までにしていて、残りは次の起動で読む`,
+          );
         }
       }
       // 残り（tarball がない取り込み元では全部）を1件ずつ読む
@@ -285,15 +299,18 @@ export class Kb {
 
 // tarball から来たファイルを batch 件ずつためて sha を計算し、一覧の sha（wanted）と同じものだけ take する。
 // sha は変換の前のバイト列で計算するので、BOM のあるファイルも一覧と合う。
+// 合わないファイルに CR があれば、CRLF を LF に戻したバイト列でも計算し、合えば戻したほうを使う
+// （.gitattributes の eol=crlf は git archive で当たる。DECISIONS.md 2026-09-28）。
 // ストリームが途中で投げたときも、ためていた分（最後まで読み切ったファイル）は確かめて take してから投げ直す
 async function takeArchive(files: AsyncIterable<ArchiveFile>, wanted: Map<string, string>, take: Take, batch: number): Promise<void> {
   let buffered: ArchiveFile[] = [];
   const check = async () => {
     const got = buffered;
     buffered = [];
-    const shas = await Promise.all(got.map((f) => blobShaOf(f.bytes)));
+    const matched = await Promise.all(got.map((f) => matchSha(f.bytes, wanted.get(f.path))));
     for (let i = 0; i < got.length; i++) {
-      if (wanted.get(got[i].path) === shas[i]) await take({ path: got[i].path, sha: shas[i], content: decoder.decode(got[i].bytes) });
+      const bytes = matched[i];
+      if (bytes) await take({ path: got[i].path, sha: wanted.get(got[i].path)!, content: decoder.decode(bytes) });
     }
   };
   try {
@@ -306,6 +323,25 @@ async function takeArchive(files: AsyncIterable<ArchiveFile>, wanted: Map<string
     throw e;
   }
   await check();
+}
+
+// 一覧の sha と合うバイト列。そのままで合わなければ CRLF を LF に戻したもので試す。どちらも合わなければ null
+async function matchSha(bytes: Uint8Array, sha: string | undefined): Promise<Uint8Array | null> {
+  if (sha === undefined) return null;
+  if ((await blobShaOf(bytes)) === sha) return bytes;
+  if (!bytes.includes(0x0d)) return null;
+  const lf = crlfToLf(bytes);
+  return (await blobShaOf(lf)) === sha ? lf : null;
+}
+
+function crlfToLf(bytes: Uint8Array): Uint8Array {
+  const out = new Uint8Array(bytes.length);
+  let n = 0;
+  for (let i = 0; i < bytes.length; i++) {
+    if (bytes[i] === 0x0d && bytes[i + 1] === 0x0a) continue;
+    out[n++] = bytes[i];
+  }
+  return out.subarray(0, n);
 }
 
 // paths を同時に concurrency 件まで1件ずつ読む。NotFoundError は removed に入れる。

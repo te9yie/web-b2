@@ -129,3 +129,28 @@ export function streamOf(bytes: Uint8Array, size = 65536): ReadableStream<Uint8A
     },
   });
 }
+
+// 本物の git archive の出力（git 2.53.0.windows.1、src/client/testdata/git-archive.tar.gz、727バイト）。
+// 空のリポジトリに hash-object と update-index で下のファイルを置き（.gitattributes は `notes/crlf.md text eol=crlf`、
+// notes/link.md は a.md へのシンボリックリンク）、commit-tree したものを
+// `git archive --format=tar.gz --prefix=owner-repo-abc1234/ <commit>` で出した。blobs は `git ls-tree -r` の sha
+export const gitArchiveSample = {
+  file: "src/client/testdata/git-archive.tar.gz",
+  top: "owner-repo-abc1234",
+  blobs: {
+    ".gitattributes": { sha: "d2c2770c1b1321bbd0919c6f329f63859fbf99aa", content: "notes/crlf.md text eol=crlf\n" },
+    "notes/513.md": { sha: "0aa733449e1354ca352fbd8b599715330e6b9a8a", content: "y".repeat(513) },
+    "notes/a.md": { sha: "7f3b95d297183eca8f6cf38ceaa253bee8c2d7cd", content: "# A\n" },
+    // eol=crlf で、tarball の中では CRLF になっている（18バイトが21バイト）
+    "notes/crlf.md": { sha: "2e61f6383136440542003bf78b66d9040f9da8b4", content: "# CRLF\n\n二行目\n" },
+    // ustar の prefix に分けられるパス
+    [`notes/${"d".repeat(60)}/${"e".repeat(60)}.md`]: { sha: "c6ac7593c4e212c7f73ac30a63766050aa079337", content: "# prefix に分けるパス\n" },
+    "notes/empty.md": { sha: "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391", content: "" },
+    // tarball ではシンボリックリンク（種類 2）なので中身は返らない
+    "notes/link.md": { sha: "e77de8562fa61286381cc40e34a75024c20e17eb", content: "a.md" },
+    // 先頭のディレクトリを含めて名前の欄がちょうど100バイト（NUL で終わらない）
+    [`notes/${"x".repeat(72)}.md`]: { sha: "97aef7288d2a3396ccb9c103ed122c4ef81491c0", content: "# 名前の欄がちょうど100バイト\n" },
+    // 最後の区切りが100バイトを超えるので pax の x で渡される
+    [`notes/${"長い名前".repeat(10)}.md`]: { sha: "50f7e5c37dc8b1d5eb92de54ef76f9cdb4a94bf2", content: "# pax で渡すパス\n" },
+  } as Record<string, { sha: string; content: string }>,
+};

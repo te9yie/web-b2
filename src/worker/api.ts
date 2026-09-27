@@ -23,7 +23,7 @@ export function createGitHubApi(env: GitHubEnv, fetchFn: typeof fetch = (input, 
   }
 
   // 一覧。Trees API で全ファイルの sha を取り、KB_DIR の下の .md だけ返す。head はブランチの先頭のコミット。
-  // ブラウザは head を /api/archive がある印に使う（tarball とのコミットの違いは sha の突き合わせで吸収する。DECISIONS.md 2026-09-28）
+  // ブラウザは head を /api/archive がある印に使う。tarball とコミットが違っても、ブラウザが sha を突き合わせるので控えの中身は一覧と一致する（DECISIONS.md 2026-09-28）
   async function listPages(gh: GitHub): Promise<Response> {
     const head = await gh.head();
     const { entries, truncated } = await gh.tree(head.tree);

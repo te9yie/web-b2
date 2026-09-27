@@ -1,6 +1,8 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { blobShaOf } from "../shared/api-path";
 import { TarError, type TarEntry, readTar } from "./tar";
-import { type TarInput, makeTar, streamOf } from "./tar-test-helper";
+import { type TarInput, gitArchiveSample, makeTar, streamOf } from "./tar-test-helper";
 
 const utf8 = (s: string) => new TextEncoder().encode(s);
 const top = "owner-repo-abc1234";
@@ -116,6 +118,27 @@ describe("readTar", () => {
     // top/ のヘッダーの名前を1バイト変える
     tar[1024 + 5] ^= 1;
     await expect(collect(streamOf(tar))).rejects.toBeInstanceOf(TarError);
+  });
+
+  it("本物の git archive の出力を読み、sha は git の blob と合う。eol=crlf のファイルだけ CRLF になっていて合わない", async () => {
+    const tgz = new Uint8Array(readFileSync(gitArchiveSample.file));
+    const { top, blobs } = gitArchiveSample;
+    for (const size of [65536, 1, 511]) {
+      const got = await collect(streamOf(tgz, size).pipeThrough(new DecompressionStream("gzip")));
+      const paths = got.map((e) => e.path.slice(top.length + 1));
+      // シンボリックリンクは返らない
+      expect(paths.sort()).toEqual(Object.keys(blobs).filter((p) => p !== "notes/link.md").sort());
+      for (const e of got) {
+        const path = e.path.slice(top.length + 1);
+        const sha = await blobShaOf(e.bytes);
+        if (path === "notes/crlf.md") {
+          expect(new TextDecoder().decode(e.bytes)).toBe("# CRLF\r\n\r\n二行目\r\n");
+          expect(sha).not.toBe(blobs[path].sha);
+        } else {
+          expect([path, sha]).toEqual([path, blobs[path].sha]);
+        }
+      }
+    }
   });
 
   it("途中でループを抜けたらストリームを止める", async () => {

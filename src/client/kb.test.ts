@@ -499,16 +499,64 @@ describe("Kb.sync の tarball の経路", () => {
     expect((await store.get("notes/p0.md"))?.content).toBe("# p0\nもう一度\n");
   });
 
-  it("tarball の後で合わないものが archiveThreshold を超えたら、1件ずつ読まずに投げる。確かめ済みの分は控えとレコードに入る", async () => {
+  it("tarball の後で合わないものが archiveThreshold を超えたら、その件数だけ1件ずつ読んでから投げ、起動のたびに進む", async () => {
     const store = new MemoryStore();
-    const source = await archiveSource(...pages(5));
-    // 3件の中身が変換されている（.gitattributes の export-subst など）
-    source.tarball = new Map(pages(5).map(([p, c], i) => [p, i < 3 ? `${c}$Format:%H$\n` : c]));
+    const source = await archiveSource(...pages(7));
+    // 5件の中身が変換されている（.gitattributes の export-subst。戻せない）
+    source.tarball = new Map(pages(7).map(([p, c], i) => [p, i < 5 ? `${c}$Format:%H$\n` : c]));
     const kb = await Kb.open(store);
-    await expect(kb.sync(source, { archiveThreshold: 2 })).rejects.toThrow("合わないファイルが 3 件ある");
+    await expect(kb.sync(source, { archiveThreshold: 2 })).rejects.toThrow("合わないファイルが 5 件ある");
+    expect(source.reads).toEqual(["notes/p0.md", "notes/p1.md"]);
+    expect(names(kb)).toEqual(["p0", "p1", "p5", "p6"]);
+    expect((await store.getIndex())?.pages.map((p) => p.path).sort()).toEqual(["notes/p0.md", "notes/p1.md", "notes/p5.md", "notes/p6.md"]);
+
+    // 次の起動: 残り3件で archiveThreshold を超えるので、もう一度 tarball を取り、2件読んで投げる
+    source.reads.length = 0;
+    const second = await Kb.open(store);
+    await expect(second.sync(source, { archiveThreshold: 2 })).rejects.toThrow("合わないファイルが 3 件ある");
+    expect(source.archives).toBe(2);
+    expect(source.reads).toEqual(["notes/p2.md", "notes/p3.md"]);
+
+    // その次: 残り1件なので tarball を取らずに読んで終わる
+    source.reads.length = 0;
+    const third = await Kb.open(store);
+    const result = await third.sync(source, { archiveThreshold: 2 });
+    expect(source.archives).toBe(2);
+    expect(source.reads).toEqual(["notes/p4.md"]);
+    expect(result.fetched).toEqual(["notes/p4.md"]);
+    expect(names(third)).toHaveLength(7);
+    expect((await store.get("notes/p0.md"))?.content).toBe("# p0\n");
+  });
+
+  it("eol=crlf で CRLF に変わったファイルは、LF に戻した中身が一覧の sha と合えばそれを控えに入れる", async () => {
+    const store = new MemoryStore();
+    const source = await archiveSource(["notes/a.md", "# A\n\n本文\n"], ["notes/mixed.md", "# M\r\n一行目\n"]);
+    source.tarball = new Map([
+      ["notes/a.md", "# A\r\n\r\n本文\r\n"],
+      // 元から CRLF を含むファイル。LF に戻すと元と違うので1件ずつ読む
+      ["notes/mixed.md", "# M\r\n一行目\r\n"],
+    ]);
+    const kb = await Kb.open(store);
+    const result = await kb.sync(source);
+    expect(source.reads).toEqual(["notes/mixed.md"]);
+    expect(result.fetched.sort()).toEqual(["notes/a.md", "notes/mixed.md"]);
+    const a = await store.get("notes/a.md");
+    expect(a?.content).toBe("# A\n\n本文\n");
+    expect(a?.sha).toBe(source.files.get("notes/a.md")?.sha);
+    expect((await store.get("notes/mixed.md"))?.content).toBe("# M\r\n一行目\n");
+  });
+
+  it("archive が投げたら（502 など）sync も投げ、1件ずつ読みには回らず、控えは変わらない", async () => {
+    const store = new MemoryStore();
+    const source = await archiveSource(...pages(3));
+    source.archive = async () => {
+      throw new Error("APIの応答が異常: 502");
+    };
+    const kb = await Kb.open(store);
+    await expect(kb.sync(source)).rejects.toThrow("502");
     expect(source.reads).toEqual([]);
-    expect(names(kb)).toEqual(["p3", "p4"]);
-    expect((await store.getIndex())?.pages.map((p) => p.path)).toEqual(["notes/p3.md", "notes/p4.md"]);
+    expect(await store.all()).toEqual([]);
+    expect(kb.index.size).toBe(0);
   });
 
   it("tarball が途中で切れたら、それまでに届いた分を控えとレコードに書いてから投げ、次は残りだけ読む", async () => {

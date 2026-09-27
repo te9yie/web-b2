@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { describe, expect, it, vi } from "vitest";
 import { createLocalApi } from "../server/local";
 import { blobShaOf } from "../shared/api-path";
 import { createGitHubApi } from "../worker/api";
@@ -6,7 +7,7 @@ import { FakeGitHub, REPO } from "../worker/github-test-helper";
 import { Kb } from "./kb";
 import { ApiSource, type ArchiveFile, ConflictError, NotFoundError, encodePath } from "./source";
 import { MemoryStore, type StoredFile } from "./store";
-import { makeTarGz } from "./tar-test-helper";
+import { gitArchiveSample, makeTarGz } from "./tar-test-helper";
 
 function file(path: string, content: string, sha = `sha:${content}`): StoredFile {
   return { path, sha, content };
@@ -135,7 +136,75 @@ describe("ApiSource.archive", () => {
     await expect(source.archive(() => true)).rejects.toThrow("502 GitHub: tarball の取得が 500");
     archive = new Response("TARBALL");
     const files = await source.archive(() => true);
-    await expect(collect(files!)).rejects.toThrow();
+    // DecompressionStream の TypeError は、どこで失敗したか分かる文に包む
+    const e = await collect(files!).catch((err: unknown) => err);
+    expect((e as Error).message).toMatch(/^tarball の読み込みが途中で失敗した: TypeError/);
+    expect((e as Error).cause).toBeInstanceOf(TypeError);
+  });
+
+  it("DecompressionStream がなければ /api/archive を取りに行かずに投げる", async () => {
+    const calls: string[] = [];
+    const source = new ApiSource(async (input) => {
+      calls.push(urlOf(input));
+      return Response.json({ pages: [], dir: "notes", head: "h" });
+    });
+    await source.list();
+    vi.stubGlobal("DecompressionStream", undefined);
+    try {
+      await expect(source.archive(() => true)).rejects.toThrow("DecompressionStream がない");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(calls).toEqual(["/api/pages"]);
+  });
+
+  it("途中で切れた tar.gz は、切れる前に読めた分を控えとレコードに入れてから投げ、1件ずつは読まない", async () => {
+    const entries = Array.from({ length: 50 }, (_, i) => ({ path: `notes/p${i}.md`, content: `# p${i}\n${"本文".repeat(200)}\n` }));
+    const tgz = makeTarGz(entries);
+    const listed = await Promise.all(entries.map(async (e) => ({ path: e.path, sha: await blobShaOf(new TextEncoder().encode(e.content)) })));
+    const calls: string[] = [];
+    const source = new ApiSource(async (input) => {
+      const url = urlOf(input);
+      calls.push(url);
+      if (url === "/api/pages") return Response.json({ pages: listed, dir: "notes", head: "h" });
+      if (url === "/api/archive") return new Response(tgz.slice(0, tgz.length / 2));
+      return Response.json({ error: "読まないはず" }, { status: 500 });
+    });
+    const store = new MemoryStore();
+    const kb = await Kb.open(store);
+    await expect(kb.sync(source)).rejects.toThrow("tarball の読み込みが途中で失敗した");
+    expect(calls).toEqual(["/api/pages", "/api/archive"]);
+    const stored = (await store.all()).length;
+    expect(stored).toBeGreaterThan(0);
+    expect(stored).toBeLessThan(50);
+    expect((await store.getIndex())?.pages).toHaveLength(stored);
+    expect(kb.index.size).toBe(stored);
+  });
+
+  it("本物の git archive の出力を取り込む。eol=crlf のファイルは LF に戻して一覧の sha と合わせ、シンボリックリンクだけ1件ずつ読む", async () => {
+    const { blobs } = gitArchiveSample;
+    const tgz = new Uint8Array(readFileSync(gitArchiveSample.file));
+    const pages = Object.entries(blobs)
+      .filter(([p]) => p.startsWith("notes/") && p.endsWith(".md"))
+      .map(([path, b]) => ({ path, sha: b.sha }));
+    const calls: string[] = [];
+    const source = new ApiSource(async (input) => {
+      const url = urlOf(input);
+      calls.push(url);
+      if (url === "/api/pages") return Response.json({ pages, dir: "notes", head: "c81a365331251ef39685f7cc7819fa79e16c0b55" });
+      if (url === "/api/archive") return new Response(tgz);
+      if (url === "/api/pages/notes/link.md") return Response.json({ path: "notes/link.md", ...blobs["notes/link.md"] });
+      return Response.json({ error: "ない" }, { status: 404 });
+    });
+    const store = new MemoryStore();
+    const kb = await Kb.open(store);
+    const result = await kb.sync(source);
+    expect(calls).toEqual(["/api/pages", "/api/archive", "/api/pages/notes/link.md"]);
+    expect(result.fetched).toHaveLength(pages.length);
+    for (const p of pages) {
+      const f = await store.get(p.path);
+      expect([p.path, f?.sha, f?.content]).toEqual([p.path, p.sha, blobs[p.path].content]);
+    }
   });
 });
 

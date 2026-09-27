@@ -1,4 +1,5 @@
 // tar を流しながら読む。GitHub の tarball（git archive の出力）が使う ustar と pax の拡張ヘッダーだけを扱う。
+// pax の拡張ヘッダーは path だけを読む。8GiBを超えるファイル（git archive は pax の size で渡す）は扱わない。
 // gzip の展開は呼ぶ側（DecompressionStream）で行う
 
 export interface TarEntry {
