@@ -1,7 +1,7 @@
 // settings ページの読み取り（SPEC.md「settings ページ」）。H1 が settings のページの見出しごとに設定を読む。
 // ページや見出しがなければ既定の値
 
-import { codeBlock, firstLink, listItems, section } from "./md";
+import { codeBlock, listItems, section } from "./md";
 
 export interface HeaderLink {
   label: string;
@@ -15,8 +15,6 @@ export interface Settings {
   name: string | null;
   // 「トップ」の節の生の文字列。段階4でマクロを展開してから最初の [[リンク]] を取るために持つ
   topSection: string | null;
-  // 「トップ」の最初の [[リンク]] の名前（展開前）。なければ null（今日の日付ページ）
-  top: string | null;
   // 「ヘッダー」の箇条書き。なければ既定（今日・一覧）
   header: HeaderLink[];
   // ```css style.css の中身
@@ -32,7 +30,7 @@ export const DEFAULT_HEADER: HeaderLink[] = [
 
 export const SETTINGS_NAME = "settings";
 
-export const DEFAULT_SETTINGS: Settings = { name: null, topSection: null, top: null, header: DEFAULT_HEADER, css: null, script: null };
+export const DEFAULT_SETTINGS: Settings = { name: null, topSection: null, header: DEFAULT_HEADER, css: null, script: null };
 
 function parseHeaderItem(item: string): HeaderLink | null {
   const wiki = /^\[\[([^\[\]|\r\n]+?)(?:\|([^\[\]\r\n]*))?\]\]$/.exec(item.trim());
@@ -58,7 +56,6 @@ export function parseSettings(page: { name: string; body: string } | null): Sett
   return {
     name: page.name,
     topSection,
-    top: topSection === null ? null : firstLink(topSection),
     header: header.length === 0 ? DEFAULT_HEADER : header,
     css: codeBlock(body, "style.css"),
     script: codeBlock(body, "script.js"),

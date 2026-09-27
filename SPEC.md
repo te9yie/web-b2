@@ -111,15 +111,18 @@ Workerとローカルモードで同じ形にする。`<path>` はリポジト�
 
 | 名前 | 中身 |
 | --- | --- |
-| `kb.macro(name, fn)` | マクロを登録する。`fn(引数の文字列, ctx)` はMarkdownの文字列を返す。`ctx.name` は表示中のページ名、`ctx.stack` は展開中のページ名の配列 |
+| `kb.macro(name, fn)` | マクロを登録する。`fn(引数の文字列, ctx)` はMarkdownの文字列か、そのPromiseを返す。`ctx.name` は表示中のページ名、`ctx.stack` は展開中のページ名の配列 |
 | `kb.command(name, fn)` | エディタのコマンドを登録する。`fn(editor)` を受け取る。呼び出し方（右クリック、`/名前`）は後で決める |
-| `kb.pages` | `name` → ページ の Map。読むだけ |
-| `kb.resolve(ref)` | `[[ ]]` 付きでもよい。`[name, page]` か `null` |
+| `kb.pages` | `name` → ページ の Map。読むだけ。ページは本文なし（`name`・`title`・`created`・`updated`・`links`・`path`・`sha`） |
+| `kb.resolve(ref)` | `[[ ]]` 付きでもよい。`[name, page]` か `null`。ページは本文なし |
+| `kb.page(ref)` | 本文つきのページの Promise。なければ `null`。そのページの分だけ控えから読む |
 | `kb.section(md, heading)` | その見出しの次の行から、同じかより浅い見出しの手前まで。見出しの行は含めない |
 | `kb.codeBlock(md, name)` | 名前付きコードブロックの中身。同名が複数あれば連結 |
-| `kb.expand(md, ctx)` | マクロを展開する |
-| `kb.wikilink(name, page)` | `[[name|title]]` の形の文字列 |
+| `kb.expand(md, ctx)` | マクロを展開する。Promise |
+| `kb.wikilink(name, page)` | `[[name|title]]` の形の文字列。`title` が `name` と同じか `page` が `null` なら `[[name]]` |
 | `kb.today()` | ブラウザのタイムゾーンでの `YYYY-MM-DD` |
+
+マクロの関数が例外を投げたら、その `{{ }}` の場所に名前と理由を出し、残りは展開する。展開は1回きりで、戻り値の中の `{{ }}` は展開しない。入れ子にしたいマクロは `kb.expand` を自分で呼ぶ。`kb.expand` の呼び出しの連なりが20を超えたら、その場所に「展開が深すぎる」と出す。名前と引数の区切りは半角か全角の空白。`settings` の「トップ」を展開するときの `ctx.name` は `settings` ページの名前。
 
 ## settings ページ
 
@@ -138,7 +141,7 @@ Markdownはブラウザで変換する（marked）。Mermaidのコードブロ�
 
 ## 性能
 
-ページが1万件・合計64MB程度になっても使えることを条件にする。初回の索引作成は数秒まで許容する。2回目以降の起動、ページの表示、検索は100ms以内を目標にする。一覧と検索結果は300件までしか出さない。
+ページが1万件・合計64MB程度になっても使えることを条件にする。初回の索引作成は数秒まで許容する。2回目以降の起動、ページの表示、検索は100ms以内を目標にする。ページの表示はマクロを展開してから行うので、マクロの待ち時間（外部への `fetch` など）はこの目標に含めない。一覧と検索結果は300件までしか出さない。
 
 ## 技術
 
