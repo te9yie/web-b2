@@ -197,8 +197,8 @@ export async function showCapture(deps: CaptureDeps, route: CaptureRoute, root: 
   let saving = false;
   let armedAt = performance.now();
   let armTimer: ReturnType<typeof setTimeout> | null = null;
-  const canSave = () =>
-    ready && !saving && document.hasFocus() && document.visibilityState === "visible" && performance.now() - armedAt >= ARM_DELAY;
+  const isFocused = () => document.hasFocus() && document.visibilityState === "visible";
+  let wasFocused = isFocused();
   const refresh = () => {
     if (armTimer !== null) clearTimeout(armTimer);
     armTimer = null;
@@ -206,10 +206,17 @@ export async function showCapture(deps: CaptureDeps, route: CaptureRoute, root: 
       detach();
       return;
     }
+    const focused = isFocused();
+    // focus のイベントを取りこぼしても、フォーカスを得たところから数え直す
+    if (focused && !wasFocused) armedAt = performance.now();
+    wasFocused = focused;
+    const elapsed = performance.now() - armedAt;
     cancelButton.disabled = saving;
-    saveButton.disabled = !canSave();
-    const wait = ARM_DELAY - (performance.now() - armedAt);
-    if (saveButton.disabled && saveButton.isConnected && ready && !saving && wait > 0) armTimer = setTimeout(refresh, wait);
+    saveButton.disabled = !(ready && !saving && focused && elapsed >= ARM_DELAY);
+    // 押せるようになるまで見直す。フォーカスがないあいだは、イベントが来なくても気づけるよう短い間隔で見る
+    if (saveButton.disabled && saveButton.isConnected && ready && !saving) {
+      armTimer = setTimeout(refresh, focused ? ARM_DELAY - elapsed : 200);
+    }
   };
   const rearm = () => {
     armedAt = performance.now();
@@ -292,7 +299,8 @@ export async function showCapture(deps: CaptureDeps, route: CaptureRoute, root: 
   refresh();
 
   const save = async () => {
-    if (!canSave()) return;
+    refresh();
+    if (saveButton.disabled) return;
     const body = normalizeBody(textarea.value);
     // 見出しだけの新しいページ（title のある /new）のほかは、本文がなければ書くものがない
     if (isBlank(body) && (plan.kind === "append" || plan.name === null)) {
