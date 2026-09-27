@@ -18,7 +18,15 @@ export interface VerifierDeps {
   now(): number;
 }
 
-export type AccessVerifier = (token: string, config: AccessConfig) => Promise<boolean>;
+// 通らなかった理由。401の原因を調べるため、一時的に本文にも出している
+export type AccessFailure =
+  | { reason: "bad-format" | "alg" | "no-key" | "certs-fetch-failed" | "signature" | "exp" | "nbf" }
+  | { reason: "aud"; tokenAud: unknown; expectedLength: number }
+  | { reason: "iss"; tokenIss: unknown; expectedLength: number };
+
+export type AccessResult = { ok: true } | ({ ok: false } & AccessFailure);
+
+export type AccessVerifier = (token: string, config: AccessConfig) => Promise<AccessResult>;
 
 // 鍵は取り直さずに使い回す。知らない kid が来たら取り直すが、間隔は空ける
 const cacheMs = 60 * 60 * 1000;
@@ -58,10 +66,11 @@ export function createAccessVerifier(deps: VerifierDeps): AccessVerifier {
     return find();
   }
 
-  return async (token, config) => {
+  return async (token, config): Promise<AccessResult> => {
+    const fail = (failure: AccessFailure): AccessResult => ({ ok: false, ...failure });
     const teamDomain = normalizeTeamDomain(config.teamDomain);
     const parts = token.split(".");
-    if (parts.length !== 3) return false;
+    if (parts.length !== 3) return fail({ reason: "bad-format" });
     const [headerPart, payloadPart, signaturePart] = parts;
     let header: Record<string, unknown>;
     let payload: Record<string, unknown>;
@@ -71,25 +80,45 @@ export function createAccessVerifier(deps: VerifierDeps): AccessVerifier {
       payload = decodeJson(payloadPart);
       signature = base64UrlDecode(signaturePart);
     } catch {
-      return false;
+      return fail({ reason: "bad-format" });
     }
-    if (header.alg !== "RS256" || typeof header.kid !== "string") return false;
+    if (header.alg !== "RS256") return fail({ reason: "alg" });
+    if (typeof header.kid !== "string") return fail({ reason: "no-key" });
 
-    const jwk = await findKey(`${teamDomain}/cdn-cgi/access/certs`, header.kid);
-    if (!jwk) return false;
-    const key = await crypto.subtle.importKey("jwk", jwk, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, [
-      "verify",
-    ]);
+    let jwk: JsonWebKey | undefined;
+    try {
+      jwk = await findKey(`${teamDomain}/cdn-cgi/access/certs`, header.kid);
+    } catch (e) {
+      console.error("Accessの鍵を取れない", e);
+      return fail({ reason: "certs-fetch-failed" });
+    }
+    if (!jwk) return fail({ reason: "no-key" });
+    let key: CryptoKey;
+    try {
+      key = await crypto.subtle.importKey("jwk", jwk, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, [
+        "verify",
+      ]);
+    } catch {
+      return fail({ reason: "no-key" });
+    }
     const signed = new TextEncoder().encode(`${headerPart}.${payloadPart}`);
-    if (!(await crypto.subtle.verify("RSASSA-PKCS1-v1_5", key, signature, signed))) return false;
+    if (!(await crypto.subtle.verify("RSASSA-PKCS1-v1_5", key, signature, signed))) {
+      return fail({ reason: "signature" });
+    }
 
     const auds = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
-    if (!auds.includes(config.aud)) return false;
-    if (payload.iss !== teamDomain) return false;
+    if (!auds.includes(config.aud)) {
+      return fail({ reason: "aud", tokenAud: payload.aud, expectedLength: config.aud.length });
+    }
+    if (payload.iss !== teamDomain) {
+      return fail({ reason: "iss", tokenIss: payload.iss, expectedLength: teamDomain.length });
+    }
     const nowSec = deps.now() / 1000;
-    if (typeof payload.exp !== "number" || payload.exp <= nowSec) return false;
-    if (payload.nbf !== undefined && (typeof payload.nbf !== "number" || payload.nbf > nowSec)) return false;
-    return true;
+    if (typeof payload.exp !== "number" || payload.exp <= nowSec) return fail({ reason: "exp" });
+    if (payload.nbf !== undefined && (typeof payload.nbf !== "number" || payload.nbf > nowSec)) {
+      return fail({ reason: "nbf" });
+    }
+    return { ok: true };
   };
 }
 

@@ -28,58 +28,78 @@ const config = { teamDomain, aud };
 describe("createAccessVerifier", () => {
   it("正しいトークンを通し、チームドメインの certs から鍵を取る", async () => {
     const { state, verify } = setup(() => jwks(key));
-    expect(await verify(await sign(key), config)).toBe(true);
+    expect(await verify(await sign(key), config)).toEqual({ ok: true });
     expect(state.fetched).toEqual([`${teamDomain}/cdn-cgi/access/certs`]);
   });
 
   it("aud が文字列でも通す", async () => {
     const { verify } = setup(() => jwks(key));
-    expect(await verify(await sign(key, { aud }), config)).toBe(true);
+    expect(await verify(await sign(key, { aud }), config)).toEqual({ ok: true });
   });
 
   it("別の鍵で署名したものは通さない", async () => {
     const { verify } = setup(() => jwks(key));
     const forged = await sign({ ...other, kid: "k1" });
-    expect(await verify(forged, config)).toBe(false);
+    expect(await verify(forged, config)).toEqual({ ok: false, reason: "signature" });
   });
 
   it("本文を書き換えたものは通さない", async () => {
     const { verify } = setup(() => jwks(key));
     const [h, , s] = (await sign(key)).split(".");
     const [, b] = (await sign(key, { email: "someone" })).split(".");
-    expect(await verify(`${h}.${b}.${s}`, config)).toBe(false);
+    expect(await verify(`${h}.${b}.${s}`, config)).toEqual({ ok: false, reason: "signature" });
   });
 
-  it("aud が違えば通さない", async () => {
+  it("aud が違えば通さず、トークンの aud と比べた側の長さを返す", async () => {
     const { verify } = setup(() => jwks(key));
-    expect(await verify(await sign(key, { aud: ["other"] }), config)).toBe(false);
+    expect(await verify(await sign(key, { aud: ["other"] }), config)).toEqual({
+      ok: false,
+      reason: "aud",
+      tokenAud: ["other"],
+      expectedLength: aud.length,
+    });
   });
 
-  it("iss が違えば通さない", async () => {
+  it("iss が違えば通さず、トークンの iss と比べた側の長さを返す", async () => {
     const { verify } = setup(() => jwks(key));
-    expect(await verify(await sign(key, { iss: "https://evil.cloudflareaccess.com" }), config)).toBe(false);
+    expect(await verify(await sign(key, { iss: "https://evil.cloudflareaccess.com" }), config)).toEqual({
+      ok: false,
+      reason: "iss",
+      tokenIss: "https://evil.cloudflareaccess.com",
+      expectedLength: teamDomain.length,
+    });
   });
 
   it("期限切れ・exp なし・nbf より前は通さない", async () => {
     const { verify } = setup(() => jwks(key));
     const nowSec = Math.floor(now / 1000);
-    expect(await verify(await sign(key, { exp: nowSec }), config)).toBe(false);
-    expect(await verify(await sign(key, { exp: undefined }), config)).toBe(false);
-    expect(await verify(await sign(key, { nbf: nowSec + 60 }), config)).toBe(false);
+    expect(await verify(await sign(key, { exp: nowSec }), config)).toEqual({ ok: false, reason: "exp" });
+    expect(await verify(await sign(key, { exp: undefined }), config)).toEqual({ ok: false, reason: "exp" });
+    expect(await verify(await sign(key, { nbf: nowSec + 60 }), config)).toEqual({ ok: false, reason: "nbf" });
   });
 
   it("RS256 以外や kid のないものは通さない", async () => {
     const { verify } = setup(() => jwks(key));
-    expect(await verify(await sign(key, {}, { alg: "none" }), config)).toBe(false);
-    expect(await verify(await sign(key, {}, { alg: "HS256" }), config)).toBe(false);
-    expect(await verify(await sign(key, {}, { kid: undefined }), config)).toBe(false);
+    expect(await verify(await sign(key, {}, { alg: "none" }), config)).toEqual({ ok: false, reason: "alg" });
+    expect(await verify(await sign(key, {}, { alg: "HS256" }), config)).toEqual({ ok: false, reason: "alg" });
+    expect(await verify(await sign(key, {}, { kid: undefined }), config)).toEqual({ ok: false, reason: "no-key" });
   });
 
   it("JWTの形でないものは通さない", async () => {
     const { verify } = setup(() => jwks(key));
     for (const token of ["", "a.b", "a.b.c", "!!.!!.!!", `${(await sign(key)).slice(0, -2)}*`]) {
-      expect(await verify(token, config)).toBe(false);
+      expect(await verify(token, config)).toEqual({ ok: false, reason: "bad-format" });
     }
+  });
+
+  it("鍵を取れなければ certs-fetch-failed", async () => {
+    const verify = createAccessVerifier({
+      fetchCerts: async () => {
+        throw new Error("network");
+      },
+      now: () => now,
+    });
+    expect(await verify(await sign(key), config)).toEqual({ ok: false, reason: "certs-fetch-failed" });
   });
 
   it("鍵は使い回し、知らない kid が来たら取り直す", async () => {
@@ -92,15 +112,15 @@ describe("createAccessVerifier", () => {
     // 鍵が入れ替わった。取り直しの間隔を空けてから来れば通す
     keys = jwks(key, other);
     state.now += 2 * 60 * 1000;
-    expect(await verify(await sign(other), config)).toBe(true);
+    expect(await verify(await sign(other), config)).toEqual({ ok: true });
     expect(state.fetched).toHaveLength(2);
   });
 
   it("知らない kid が続いても、すぐには取り直さない", async () => {
     const { state, verify } = setup(() => jwks(key));
     await verify(await sign(key), config);
-    expect(await verify(await sign(other), config)).toBe(false);
-    expect(await verify(await sign(other), config)).toBe(false);
+    expect(await verify(await sign(other), config)).toEqual({ ok: false, reason: "no-key" });
+    expect(await verify(await sign(other), config)).toEqual({ ok: false, reason: "no-key" });
     expect(state.fetched).toHaveLength(1);
   });
 });

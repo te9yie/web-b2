@@ -39,15 +39,25 @@ describe("振り分け", () => {
 });
 
 describe("Access", () => {
-  it("ヘッダーがなければ /api/pages は401", async () => {
+  it("ヘッダーがなければ /api/pages は401で、理由は no-token", async () => {
     const res = await call("/api/pages");
     expect(res.status).toBe(401);
-    expect(await res.json()).toHaveProperty("error");
+    expect(await res.json()).toEqual({ error: "Accessを通っていない", reason: "no-token" });
   });
 
   it("検証を通らないトークンは401", async () => {
-    const res = await call("/api/pages", { headers: { "cf-access-jwt-assertion": await sign(key, { aud: ["other"] }) } });
+    const token = await sign(key, { aud: ["other"] });
+    const res = await call("/api/pages", { headers: { "cf-access-jwt-assertion": token } });
     expect(res.status).toBe(401);
+    const text = await res.text();
+    expect(JSON.parse(text)).toEqual({
+      error: "Accessを通っていない",
+      reason: "aud",
+      tokenAud: ["other"],
+      expectedLength: aud.length,
+    });
+    // トークン本体と署名は返さない
+    for (const part of token.split(".")) expect(text).not.toContain(part);
   });
 
   it("検証を通れば401にしない", async () => {
@@ -55,10 +65,13 @@ describe("Access", () => {
     expect(res.status).not.toBe(401);
   });
 
-  it("ACCESS_TEAM_DOMAIN か ACCESS_AUD が未設定なら401", async () => {
+  it("ACCESS_TEAM_DOMAIN か ACCESS_AUD が未設定なら401で、理由は secret-missing", async () => {
     const init = await signedIn();
-    expect((await call("/api/pages", init, { ...env, ACCESS_TEAM_DOMAIN: undefined })).status).toBe(401);
-    expect((await call("/api/pages", init, { ...env, ACCESS_AUD: "" })).status).toBe(401);
+    for (const e of [{ ...env, ACCESS_TEAM_DOMAIN: undefined }, { ...env, ACCESS_AUD: "" }]) {
+      const res = await call("/api/pages", init, e);
+      expect(res.status).toBe(401);
+      expect(await res.json()).toHaveProperty("reason", "secret-missing");
+    }
   });
 
   it("鍵を取れなければ401", async () => {
@@ -72,6 +85,7 @@ describe("Access", () => {
     );
     const res = await failing(new Request("http://localhost/api/pages", await signedIn()), env);
     expect(res.status).toBe(401);
+    expect(await res.json()).toHaveProperty("reason", "certs-fetch-failed");
   });
 
   it("/api/whoami はもうない", async () => {
