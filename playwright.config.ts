@@ -1,4 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
+import { MUTABLE_ROOT } from "./e2e/global-setup";
 
 const port = 5199;
 // 書き換えるテスト用。fixtures/ を e2e/.data に写したものを KB_ROOT にする（global-setup.ts）
@@ -36,7 +37,7 @@ export default defineConfig({
       command: `npm run dev:local -- --port ${mutablePort} --strictPort`,
       url: `http://localhost:${mutablePort}`,
       reuseExistingServer: !process.env.CI,
-      env: { KB_ROOT: "e2e/.data" },
+      env: { KB_ROOT: MUTABLE_ROOT },
     },
   ],
 });
