@@ -106,6 +106,11 @@ export class KbIndex<P extends PageMeta = PageMeta> {
     this.sources = sources;
   }
 
+  // 逆引きを捨てる。ページの links を後から入れ替えたときに、次に要るときに作り直させる
+  resetBacklinks(): void {
+    this.sources = null;
+  }
+
   private sourcesOf(link: string): Set<string> | undefined {
     this.prepareBacklinks();
     return this.sources!.get(link);

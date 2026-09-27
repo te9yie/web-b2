@@ -34,7 +34,8 @@ function render(kb: Kb, note: string): void {
   );
 }
 
-// 描画を1回挟む
+// 描画を1回挟む。見えていないタブでは requestAnimationFrame が止まるので、表に出るまで逆引きも差分も取らない。
+// それで失うものはないので、そのままにしている
 function nextFrame(): Promise<void> {
   return new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
 }

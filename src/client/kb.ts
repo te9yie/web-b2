@@ -2,8 +2,9 @@
 // 起動時は控えの解析結果のレコードだけを読んで索引を作り、本文は読まない。
 // リンク（20万本になる）はレコードから分けて置いてあり、最初の描画の後に読んで逆引きを作る。
 // 差分はその後に取って索引に反映する（DECISIONS.md 2026-09-27「起動時は解析結果だけを読む」）。
+// バックリンクと 2 hop link は、リンクを読み終えてから引くように、index ではなくここの backlinks/twoHop を使う
 
-import { KbIndex } from "./kb-index";
+import { KbIndex, type TwoHop } from "./kb-index";
 import { type Page, type PageMeta, parsePage, toMeta } from "./page";
 import { NotFoundError, type Source } from "./source";
 import type { FileStore, StoredFile } from "./store";
@@ -21,10 +22,11 @@ export interface SyncResult {
 export type OpenStep = "record" | "index";
 
 export class Kb {
+  // name・title での解決と kb.pages に使う。逆引きは backlinks/twoHop を通す
   readonly index: KbIndex<PageMeta>;
   // path → 解析結果。差分の比較はここの sha と行う（ファイルの控えの sha ではなく）。順番はレコードと同じ
   private readonly byPath: Map<string, PageMeta>;
-  // links を読み終えたか。読む前の PageMeta の links は空
+  // links を読み終えたか。読む前の PageMeta の links は空。失敗したら null に戻して次で試し直す
   private links: Promise<void> | null;
 
   private constructor(
@@ -32,9 +34,12 @@ export class Kb {
     metas: PageMeta[],
     // 控えの解析結果が使えず、ファイルの中身から作り直したか
     readonly rebuilt: boolean,
+    // 読んだレコードの stamp。links のレコードと突き合わせる
+    private readonly stamp: string | null,
   ) {
     this.byPath = new Map(metas.map((m) => [m.path, m]));
-    this.index = new KbIndex(metas);
+    this.index = new KbIndex();
+    for (const m of metas) this.place(m);
     this.links = rebuilt ? Promise.resolve() : null;
   }
 
@@ -46,42 +51,47 @@ export class Kb {
     trace?.("record", performance.now() - t);
     if (stored && stored.version === PARSER_VERSION) {
       t = performance.now();
-      const kb = new Kb(store, stored.pages, false);
+      const kb = new Kb(store, stored.pages, false, stored.stamp);
       trace?.("index", performance.now() - t);
       return kb;
     }
-    return Kb.rebuild(store);
-  }
-
-  private static async rebuild(store: FileStore): Promise<Kb> {
     const files = await store.all();
     const metas = files.map((f) => toMeta(parsePage(f)));
     await store.putIndex({ version: PARSER_VERSION, pages: metas });
-    return new Kb(store, metas, true);
+    return new Kb(store, metas, true, null);
   }
 
   // links を控えから読んで各ページに入れる。バックリンク・2 hop link・差分の保存の前に済ませる。
-  // links のレコードが pages と合わなければ、控えの中身から解析し直す
+  // links のレコードが読んだレコードと別の書き込みのもの（stamp が違う）なら、控えの中身から解析し直す
   loadLinks(): Promise<void> {
-    this.links ??= (async () => {
-      const links = await this.store.getLinks();
-      const metas = [...this.byPath.values()];
-      if (links && links.length === metas.length) {
-        metas.forEach((m, i) => {
-          m.links = links[i];
-        });
-        return;
-      }
-      const files = await this.store.all();
-      const byPath = new Map(files.map((f) => [f.path, f]));
-      for (const m of metas) {
-        const file = byPath.get(m.path);
-        if (file) this.apply(file);
-        else this.drop(m.path);
-      }
-      await this.saveIndex();
-    })();
+    this.links ??= this.readLinks().catch((e) => {
+      this.links = null;
+      throw e;
+    });
     return this.links;
+  }
+
+  private async readLinks(): Promise<void> {
+    const stored = await this.store.getLinks();
+    const metas = [...this.byPath.values()];
+    if (stored && stored.stamp === this.stamp && stored.links.length === metas.length) {
+      metas.forEach((m, i) => {
+        m.links = stored.links[i];
+      });
+      // 読む前に逆引きを作っていたら空のままなので、作り直させる
+      this.index.resetBacklinks();
+      return;
+    }
+    await this.rebuildFromFiles();
+  }
+
+  // 控えの中身を基準に全件を解析し直す。控えにないページは消す
+  private async rebuildFromFiles(): Promise<void> {
+    const files = await this.store.all();
+    const paths = new Set(files.map((f) => f.path));
+    for (const f of files) this.apply(f);
+    for (const p of [...this.byPath.keys()]) if (!paths.has(p)) this.drop(p);
+    await this.saveIndex();
   }
 
   // 逆引きを作る。起動直後の描画のあとに呼んでおくと、最初のバックリンクの表示で待たない
@@ -90,22 +100,46 @@ export class Kb {
     this.index.prepareBacklinks();
   }
 
+  async backlinks(ref: string): Promise<PageMeta[]> {
+    await this.loadLinks();
+    return this.index.backlinks(ref);
+  }
+
+  async twoHop(ref: string): Promise<TwoHop<PageMeta>[]> {
+    await this.loadLinks();
+    return this.index.twoHop(ref);
+  }
+
   private async saveIndex(): Promise<void> {
     await this.store.putIndex({ version: PARSER_VERSION, pages: [...this.byPath.values()] });
+  }
+
+  // 索引に置く。name はリポジトリ全体で一意のはずだが、同じ name の別の path があれば path の小さいほうを見せる
+  // （読む順番で変わらないように）
+  private place(meta: PageMeta): void {
+    const current = this.index.get(meta.name);
+    if (current && current.path !== meta.path && current.path < meta.path && this.byPath.has(current.path)) return;
+    this.index.set(meta);
   }
 
   private apply(file: StoredFile): void {
     const meta = toMeta(parsePage(file));
     this.byPath.set(file.path, meta);
-    this.index.set(meta);
+    this.place(meta);
   }
 
   private drop(path: string): void {
     const old = this.byPath.get(path);
     if (!old) return;
     this.byPath.delete(path);
-    // 同じ name の別のファイルが後から来て索引を差し替えていることがあるので、自分のものだけ消す
-    if (this.index.get(old.name)?.path === path) this.index.remove(old.name);
+    if (this.index.get(old.name)?.path !== path) return;
+    this.index.remove(old.name);
+    // 同じ name の別の path が残っていれば、そちらを見せる
+    let next: PageMeta | null = null;
+    for (const m of this.byPath.values()) {
+      if (m.name === old.name && (next === null || m.path < next.path)) next = m;
+    }
+    if (next) this.index.set(next);
   }
 
   // 一覧の sha と解析結果の sha を比べ、違うものと新しいものだけ読んで解析し、索引に反映する。一覧にないものは消す。
@@ -149,7 +183,8 @@ export class Kb {
     await Promise.all(Array.from({ length: Math.max(1, Math.min(concurrency, toFetch.length)) }, worker));
     await flush();
     if (failed !== null) {
-      if (fetched.length > 0) await this.saveIndex();
+      // 反映した分を残す。これ自体が失敗しても、伝えるのは元の失敗
+      if (fetched.length > 0) await this.saveIndex().catch(() => undefined);
       throw failed;
     }
 

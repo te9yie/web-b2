@@ -15,10 +15,17 @@ export interface StoredFile {
 
 // 全ページの解析結果。起動時はこれだけを読んで索引を作る（DECISIONS.md 2026-09-27「起動時は解析結果だけを読む」）。
 // version は解析の版で、違えばファイルの中身から全件を解析し直す。
-// links は量が多い（1万ページで20万本）ので別に置き、getIndex が返す pages の links は空。getLinks で pages と同じ順に読む
+// links は量が多い（1万ページで20万本）ので別に置き、getIndex が返す pages の links は空。getLinks で pages と同じ順に読む。
+// stamp は putIndex のたびに変わる印で、両方に同じ値が入る。別々に読むあいだに別のタブが書き換えると値が違うので、それで見分ける
 export interface StoredIndex {
   version: number;
+  stamp: string;
   pages: PageMeta[];
+}
+
+export interface StoredLinks {
+  stamp: string;
+  links: string[][];
 }
 
 export interface FileStore {
@@ -27,9 +34,9 @@ export interface FileStore {
   put(files: StoredFile[]): Promise<void>;
   remove(paths: string[]): Promise<void>;
   getIndex(): Promise<StoredIndex | null>;
-  getLinks(): Promise<string[][] | null>;
-  // pages と links の両方を書く
-  putIndex(index: StoredIndex): Promise<void>;
+  getLinks(): Promise<StoredLinks | null>;
+  // pages と links の両方を、新しい stamp を付けて書く
+  putIndex(index: { version: number; pages: PageMeta[] }): Promise<void>;
   // 最後に見たコミットなど、ファイル以外の小さな値
   getMeta(key: string): Promise<string | null>;
   setMeta(key: string, value: string): Promise<void>;
@@ -48,18 +55,24 @@ function parseJson(json: unknown): unknown {
 function parseIndex(json: unknown): StoredIndex | null {
   const v = parseJson(json) as Partial<StoredIndex> | null;
   if (typeof v !== "object" || v === null) return null;
-  return typeof v.version === "number" && Array.isArray(v.pages) ? { version: v.version, pages: v.pages } : null;
+  if (typeof v.version !== "number" || typeof v.stamp !== "string" || !Array.isArray(v.pages)) return null;
+  return { version: v.version, stamp: v.stamp, pages: v.pages };
 }
 
-function parseLinks(json: unknown): string[][] | null {
-  const v = parseJson(json);
-  return Array.isArray(v) ? (v as string[][]) : null;
+function parseLinks(json: unknown): StoredLinks | null {
+  const v = parseJson(json) as Partial<StoredLinks> | null;
+  if (typeof v !== "object" || v === null) return null;
+  return typeof v.stamp === "string" && Array.isArray(v.links) ? { stamp: v.stamp, links: v.links } : null;
 }
 
-// 保存する形。links を抜いた pages と、同じ順の links
-function serializeIndex(index: StoredIndex): { pages: string; links: string } {
+// 保存する形。links を抜いた pages と、同じ順の links。両方に同じ stamp を入れる
+function serializeIndex(index: { version: number; pages: PageMeta[] }): { pages: string; links: string } {
+  const stamp = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
   const pages = index.pages.map(({ links: _links, ...rest }) => ({ ...rest, links: [] }));
-  return { pages: JSON.stringify({ version: index.version, pages }), links: JSON.stringify(index.pages.map((p) => p.links)) };
+  return {
+    pages: JSON.stringify({ version: index.version, stamp, pages }),
+    links: JSON.stringify({ stamp, links: index.pages.map((p) => p.links) }),
+  };
 }
 
 export class MemoryStore implements FileStore {
@@ -80,11 +93,11 @@ export class MemoryStore implements FileStore {
     return parseIndex(this.index?.pages);
   }
 
-  async getLinks(): Promise<string[][] | null> {
+  async getLinks(): Promise<StoredLinks | null> {
     return parseLinks(this.index?.links);
   }
 
-  async putIndex(index: StoredIndex): Promise<void> {
+  async putIndex(index: { version: number; pages: PageMeta[] }): Promise<void> {
     this.index = serializeIndex(index);
   }
 
@@ -162,12 +175,12 @@ export class IdbStore implements FileStore {
     return parseIndex(await request(this.db.transaction(META, "readonly").objectStore(META).get(INDEX_KEY)));
   }
 
-  async getLinks(): Promise<string[][] | null> {
+  async getLinks(): Promise<StoredLinks | null> {
     return parseLinks(await request(this.db.transaction(META, "readonly").objectStore(META).get(LINKS_KEY)));
   }
 
   // 二つを同じトランザクションで書き、片方だけ新しくならないようにする
-  async putIndex(index: StoredIndex): Promise<void> {
+  async putIndex(index: { version: number; pages: PageMeta[] }): Promise<void> {
     const { pages, links } = serializeIndex(index);
     const tx = this.db.transaction(META, "readwrite");
     tx.objectStore(META).put(pages, INDEX_KEY);

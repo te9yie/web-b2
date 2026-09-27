@@ -121,23 +121,50 @@ describe("Kb.open と sync", () => {
     expect(again.index.twoHop("a").map((h) => [h.target.name, h.pages.map((p) => p.name)])).toEqual([["c", ["b"]]]);
   });
 
-  it("links のレコードが pages と合わなければ、控えの中身から解析し直す", async () => {
+  it("レコードを読んだあとで別のタブが書き換えていたら（stamp が違う）、控えの中身から解析し直す", async () => {
     const store = new CountingStore();
-    const source = fakeSource(file("notes/a.md", "# A\n[[b]]"), file("notes/b.md", "# B"));
+    const source = fakeSource(file("notes/a.md", "# A\n[[b]]"), file("notes/b.md", "# B\n[[c]]"));
     await (await Kb.open(store)).sync(source);
-    const stored = (await store.getIndex())!;
-    // links を1件だけにして、pages と食い違わせる
-    await store.putIndex({ version: PARSER_VERSION, pages: stored.pages });
-    (store as unknown as { index: { links: string } }).index.links = JSON.stringify([["b"]]);
     const kb = await Kb.open(store);
+    // 別のタブが a を消して d を足した（件数は同じ）。位置で対応づけると b に a の links が付く
+    const other = await Kb.open(store);
+    source.files.delete("notes/a.md");
+    source.files.set("notes/d.md", file("notes/d.md", "# D"));
+    await other.sync(source);
     store.calls.length = 0;
     source.reads.length = 0;
     await kb.prepareBacklinks();
     expect(store.calls).toEqual(["getLinks", "all", "putIndex 2"]);
-    expect(kb.index.backlinks("b").map((p) => p.name)).toEqual(["a"]);
-    expect(await store.getLinks()).toEqual([["b"], []]);
+    expect(names(kb)).toEqual(["b", "d"]);
+    expect(kb.index.get("b")?.links).toEqual(["c"]);
+    expect((await kb.backlinks("c")).map((p) => p.name)).toEqual(["b"]);
     await kb.sync(source);
     expect(source.reads).toEqual([]);
+  });
+
+  it("links を読む前に索引の逆引きを作ってしまっても、読んだあとに作り直す", async () => {
+    const store = new MemoryStore();
+    const source = fakeSource(file("notes/a.md", "# A\n[[b]]"), file("notes/b.md", "# B"));
+    await (await Kb.open(store)).sync(source);
+    const kb = await Kb.open(store);
+    expect(kb.index.backlinks("b")).toEqual([]);
+    expect((await kb.backlinks("b")).map((p) => p.name)).toEqual(["a"]);
+    expect((await kb.twoHop("a")).length).toBe(0);
+  });
+
+  it("links の読み込みに失敗しても、次の呼び出しで試し直す", async () => {
+    const store = new CountingStore();
+    const source = fakeSource(file("notes/a.md", "# A\n[[b]]"));
+    await (await Kb.open(store)).sync(source);
+    const kb = await Kb.open(store);
+    const getLinks = store.getLinks.bind(store);
+    store.getLinks = async () => {
+      throw new Error("読めない");
+    };
+    await expect(kb.prepareBacklinks()).rejects.toThrow("読めない");
+    store.getLinks = getLinks;
+    await kb.prepareBacklinks();
+    expect(kb.index.get("a")?.links).toEqual(["b"]);
   });
 
   it("本文はページの表示のときにそのページの分だけ読む", async () => {
@@ -312,16 +339,19 @@ describe("Kb.open と sync", () => {
     expect((await kb.sync(source)).fetched).toEqual([]);
   });
 
-  it("同じ name の別のファイルは後から来たものが索引に残り、片方を消しても残る", async () => {
+  it("同じ name の別のファイルは path の小さいほうを見せ、それが消えたらもう一方を見せる", async () => {
     const store = new MemoryStore();
     const source = fakeSource(file("notes/x.md", "# 1"), file("notes/sub/x.md", "# 2"));
     const kb = await Kb.open(store);
-    await kb.sync(source);
+    await kb.sync(source, { concurrency: 1 });
     expect(kb.index.size).toBe(1);
-    const survivor = kb.index.get("x")!.path;
-    const other = survivor === "notes/x.md" ? "notes/sub/x.md" : "notes/x.md";
-    source.files.delete(other);
+    expect(kb.index.get("x")?.path).toBe("notes/sub/x.md");
+    // 再起動しても同じ
+    const again = await Kb.open(store);
+    expect(again.index.get("x")?.path).toBe("notes/sub/x.md");
+    source.files.delete("notes/sub/x.md");
     await kb.sync(source);
-    expect(kb.index.get("x")?.path).toBe(survivor);
+    expect(kb.index.get("x")?.path).toBe("notes/x.md");
+    expect(kb.index.get("x")?.title).toBe("1");
   });
 });

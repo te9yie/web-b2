@@ -81,9 +81,15 @@ describe("MemoryStore", () => {
     const meta = { path: "a.md", name: "a", title: "A", h1: "A", created: null, updated: null, links: ["x", "y"], sha: "s" };
     const index = { version: 1, pages: [meta] };
     await store.putIndex(index);
-    const got = await store.getIndex();
-    expect(got).toEqual({ version: 1, pages: [{ ...meta, links: [] }] });
-    expect(got?.pages[0]).not.toBe(meta);
-    expect(await store.getLinks()).toEqual([["x", "y"]]);
+    const got = (await store.getIndex())!;
+    expect(got.version).toBe(1);
+    expect(got.pages).toEqual([{ ...meta, links: [] }]);
+    expect(got.pages[0]).not.toBe(meta);
+    const links = (await store.getLinks())!;
+    expect(links.links).toEqual([["x", "y"]]);
+    // 両方に同じ stamp が入り、書き直すと変わる
+    expect(links.stamp).toBe(got.stamp);
+    await store.putIndex(index);
+    expect((await store.getIndex())?.stamp).not.toBe(got.stamp);
   });
 });

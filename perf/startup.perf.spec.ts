@@ -1,6 +1,7 @@
 // ブラウザでの起動時間。初回（ローカルモードの API から1万ページを読む）と、2回目（IndexedDB の控えから）を測る。
 // main.ts が performance.measure で出す "open"（控えを開いて解析結果から索引を作るまで）、
-// "reverse"（逆引きの構築）、"sync"（差分の取得と反映）を読む。SPEC.md の100msの目標は open で見る
+// "reverse"（逆引きの構築）、"sync"（差分の取得と反映）を読む。SPEC.md の100msの目標は open で見る。
+// 数字は機械の負荷で揺れる（同じ機械で中央値61msと88msの日がある）ので assert はせず、docs/perf.md に写して判断する
 import { expect, test } from "@playwright/test";
 
 interface Measures {
