@@ -4,6 +4,9 @@ import { describe, expect, it } from "vitest";
 import { KbIndex } from "../src/client/kb-index";
 import { type Page, parsePage } from "../src/client/page";
 import { search } from "../src/client/search";
+import { type TarEntry, readTar } from "../src/client/tar";
+import { makeTarGz, streamOf } from "../src/client/tar-test-helper";
+import { blobShaOf } from "../src/shared/api-path";
 import { synthesize, totalBytes } from "./synth";
 
 function ms(n: number): string {
@@ -82,5 +85,39 @@ describe("1万ページの合成データ", () => {
     console.log(`ヒープ: ${(mem.heapUsed / 1024 / 1024).toFixed(0)}MB（中身 ${(bytes / 1024 / 1024).toFixed(0)}MB を含む）`);
 
     expect(index.size).toBe(10000);
+  });
+
+  // 初回の tarball の経路のうち、ブラウザ側で計算する分（ダウンロードは含めない）。
+  // ApiSource.archive と同じく DecompressionStream で展開して readTar で読み、Kb.sync と同じく200件ずつ sha を計算して文字列にする
+  it("tar.gz の展開・tar の読み・sha の計算", async () => {
+    const files = synthesize({ count: 10000, bytesPerPage: 5600, seed: 1 });
+    const tgz = makeTarGz(files.map((f) => ({ path: f.path, content: f.content })));
+    console.log(`tar.gz: ${(tgz.length / 1024 / 1024).toFixed(1)}MB（中身 ${(totalBytes(files) / 1024 / 1024).toFixed(1)}MB）`);
+    const decoder = new TextDecoder();
+    for (let run = 0; run < 3; run++) {
+      let tRead = 0;
+      let tSha = 0;
+      let n = 0;
+      const t0 = performance.now();
+      let batch: TarEntry[] = [];
+      const check = async () => {
+        const t = performance.now();
+        const shas = await Promise.all(batch.map((e) => blobShaOf(e.bytes)));
+        for (const e of batch) decoder.decode(e.bytes);
+        n += shas.length;
+        batch = [];
+        tSha += performance.now() - t;
+      };
+      let t = performance.now();
+      for await (const e of readTar(streamOf(tgz).pipeThrough(new DecompressionStream("gzip")), () => true)) {
+        tRead += performance.now() - t;
+        batch.push(e);
+        if (batch.length >= 200) await check();
+        t = performance.now();
+      }
+      await check();
+      console.log(`tarball の経路: 合計 ${ms(performance.now() - t0)}（展開と tar の読み ${ms(tRead)}、sha と文字列 ${ms(tSha)}）、${n}件`);
+      expect(n).toBe(10000);
+    }
   });
 });
