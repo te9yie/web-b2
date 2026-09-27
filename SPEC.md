@@ -76,6 +76,17 @@ front matterには `created` と `updated` を `YYYY-MM-DD` で書く。保存�
 
 `/new` と `/append` はブックマークレットの受け口なので、この形から変えない。
 
+## API
+
+Workerとローカルモードで同じ形にする。`<path>` はリポジトリのルートからのパス（`KB_DIR` を含む）で、区切りごとにURLエンコードする。`sha` はGitのblobのSHA-1。エラーは `{ error }` を返す。
+
+| メソッドとパス | 中身 |
+| --- | --- |
+| `GET /api/pages` | `KB_DIR` の下の `.md` の一覧。`{ pages: [{ path, sha }] }`、パス順 |
+| `GET /api/pages/<path>` | 1ページ。`{ path, sha, content }` |
+| `PUT /api/pages/<path>` | `{ content, sha, message }` を受けて書き込み、`{ path, sha }` を返す。`sha` は編集を始めたときの値で、新しいページは `null`。`message` はコミットメッセージ。書き込めるのは `KB_DIR` の下の `.md` だけ |
+| `GET /api/files/<path>` | 添付ファイルの中身をそのまま返す |
+
 ## 検索
 
 空白区切りの語をすべて含むページ（AND、大文字小文字を区別しない）を、タイトルに全語を含むもの→更新順で並べる。検索欄は全ページの上部に固定し、入力に合わせて結果を差し替える。IMEの変換中は検索しない。
