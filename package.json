@@ -22,7 +22,9 @@
     "wrangler": "^4.141.0"
   },
   "dependencies": {
+    "@codemirror/autocomplete": "^6.20.3",
     "@codemirror/lang-markdown": "^6.5.2",
+    "@codemirror/view": "^6.43.13",
     "codemirror": "^6.0.2",
     "marked": "^18.0.14",
     "mermaid": "^12.0.0"

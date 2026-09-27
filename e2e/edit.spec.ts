@@ -12,9 +12,9 @@ test("編集で本文を書き換えると表示に反映される（保存は�
   await expect(cm).toContainText("# 見本の本A");
   await expect(page.locator(".body")).toHaveCount(0);
 
-  // 全部を書き換える
+  // 全部を書き換える。`[[` を打つと `]]` が補われ、続けて打つ `]` は読み飛ばされる（closeBrackets）ので、結果は書いたとおりになる
   await cm.click();
-  await page.keyboard.press("Control+a");
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+a" : "Control+a");
   await page.keyboard.type("# 書き換えた\n\n本文を書き換えた。[[2026-01-15-book-c]] へのリンク。");
 
   // 「表示」で描き直すと、新しい見出しと本文とリンクが出る

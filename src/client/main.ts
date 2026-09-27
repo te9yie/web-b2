@@ -8,7 +8,7 @@ import { Scripting } from "./scripting";
 import { DEFAULT_SETTINGS, type Settings } from "./settings";
 import { ApiSource } from "./source";
 import { type FileStore, IdbStore, MemoryStore } from "./store";
-import { beginRender, escapeHtml, showAll, showPage, stale, statusText } from "./view";
+import { beginRender, escapeHtml, isEditing, leavePage, showAll, showPage, stale, statusText } from "./view";
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
 app.innerHTML = `<header id="top"><nav id="links"></nav><input id="q" type="search" placeholder="検索" autocomplete="off" aria-label="検索"></header><main id="view"><p id="status">読み込み中</p></main>`;
@@ -113,6 +113,8 @@ async function start(): Promise<void> {
 
   const render = (route: Route) => {
     const seq = beginRender();
+    // 前のルートの編集を閉じる
+    leavePage();
     // 検索欄の中身は URL に合わせる。/all 以外では空
     const query = route.kind === "all" ? route.q : "";
     if (document.activeElement !== q) q.value = query;
@@ -193,7 +195,8 @@ async function start(): Promise<void> {
     settings = await loadSettings();
     applySettings(kb, settings);
     scripting.load(settings.script, settings.name);
-    render(route);
+    // 編集中は描き直さない（下書きは残るので、次の表示で反映される）
+    if (!isEditing()) render(route);
   } else if (route.kind === "all" && route.q === "") {
     const status = document.querySelector("#status");
     if (status) status.textContent = statusText(kb, note);
