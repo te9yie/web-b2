@@ -1,8 +1,8 @@
 // 画面の描画。ページ（/p/<name>）と、いまは仮の一覧（/）
 import type { Kb } from "./kb";
-import { byUpdatedDesc } from "./kb-index";
 import type { PageMeta } from "./page";
 import { escapeHtml, pageUrl, renderMarkdown } from "./render";
+import type { SearchResult } from "./search";
 
 export { escapeHtml };
 
@@ -11,7 +11,7 @@ let current = 0;
 export function beginRender(): number {
   return ++current;
 }
-function stale(seq: number): boolean {
+export function stale(seq: number): boolean {
   return seq !== current;
 }
 
@@ -113,13 +113,15 @@ async function appendRelated(kb: Kb, name: string, root: HTMLElement, seq: numbe
   article.append(hop);
 }
 
-export function showList(kb: Kb, root: HTMLElement, note: string): void {
-  document.title = "web-b2";
-  const items = [...kb.index.pages.values()]
-    .sort(byUpdatedDesc)
-    .map((p) => `<li><a href="${pageUrl(p.name)}">${escapeHtml(p.title)}</a></li>`)
-    .join("");
-  root.innerHTML = `<h1>web-b2</h1><p id="status">${escapeHtml(statusText(kb, note))}</p><ul id="pages">${items}</ul>`;
+// 一覧と検索結果（/all）。q が空なら全ページの一覧。300件で切ったときはその旨を出す
+export function showAll(kb: Kb, root: HTMLElement, note: string, q: string, result: SearchResult): void {
+  document.title = q === "" ? "web-b2" : `${q} - web-b2`;
+  const items = result.pages.map(pageItem).join("");
+  const count =
+    q === ""
+      ? statusText(kb, note)
+      : `${result.total}件${result.total > result.pages.length ? `（先頭の${result.pages.length}件を表示）` : ""}`;
+  root.innerHTML = `<h1>${q === "" ? "web-b2" : escapeHtml(q)}</h1><p id="status">${escapeHtml(count)}</p><ul id="pages">${items}</ul>`;
 }
 
 export function statusText(kb: Kb, note: string): string {

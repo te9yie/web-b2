@@ -5,7 +5,7 @@
 // バックリンクと 2 hop link は、リンクを読み終えてから引くように、index ではなくここの backlinks/twoHop を使う
 
 import { KbIndex, type TwoHop } from "./kb-index";
-import { type Page, type PageMeta, parsePage, toMeta } from "./page";
+import { type Page, type PageMeta, parsePage, splitFrontMatter, toMeta } from "./page";
 import { NotFoundError, type Source } from "./source";
 import type { FileStore, StoredFile } from "./store";
 
@@ -28,6 +28,9 @@ export class Kb {
   private readonly byPath: Map<string, PageMeta>;
   // links を読み終えたか。読む前の PageMeta の links は空。失敗したら null に戻して次で試し直す
   private links: Promise<void> | null;
+  // 検索用の本文。bodies() で読むまでは null
+  private bodyMap: Map<string, string> | null = null;
+  private bodiesPromise: Promise<ReadonlyMap<string, string>> | null = null;
 
   private constructor(
     private readonly store: FileStore,
@@ -123,12 +126,15 @@ export class Kb {
   }
 
   private apply(file: StoredFile): void {
-    const meta = toMeta(parsePage(file));
+    const page = parsePage(file);
+    const meta = toMeta(page);
     this.byPath.set(file.path, meta);
     this.place(meta);
+    this.bodyMap?.set(file.path, page.body.toLowerCase());
   }
 
   private drop(path: string): void {
+    this.bodyMap?.delete(path);
     const old = this.byPath.get(path);
     if (!old) return;
     this.byPath.delete(path);
@@ -192,6 +198,22 @@ export class Kb {
     for (const p of removed) this.drop(p);
     if (fetched.length > 0 || removed.length > 0) await this.saveIndex();
     return { fetched, removed };
+  }
+
+  // 検索用の、小文字にした全ページの本文（path → 本文）。初めて呼ばれたときに控えから全件読み、以後は差分で更新して持っておく
+  // （1万ページで0.9秒。DECISIONS.md 2026-09-27「起動時は解析結果だけを読む」）。失敗したら次で試し直す
+  bodies(): Promise<ReadonlyMap<string, string>> {
+    this.bodiesPromise ??= (async () => {
+      const files = await this.store.all();
+      const map = new Map<string, string>();
+      for (const f of files) map.set(f.path, splitFrontMatter(f.content).body.toLowerCase());
+      this.bodyMap = map;
+      return map;
+    })().catch((e) => {
+      this.bodiesPromise = null;
+      throw e;
+    });
+    return this.bodiesPromise;
   }
 
   // 本文つきのページ。ref は name でも title でも [[ ]] 付きでもよい。表示のときに、そのページの分だけ控えから読む
