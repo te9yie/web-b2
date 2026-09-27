@@ -1,11 +1,12 @@
-import { today } from "./date";
 import { Kb } from "./kb";
-import { byUpdatedDesc } from "./kb-index";
+import { type Route, startRouter } from "./router";
 import { ApiSource } from "./source";
 import { type FileStore, IdbStore, MemoryStore } from "./store";
+import { beginRender, escapeHtml, showList, showPage, statusText } from "./view";
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
-app.innerHTML = `<h1>web-b2</h1><p>${today()}</p><p id="status">読み込み中</p><ul id="pages"></ul>`;
+app.innerHTML = `<main id="view"><p id="status">読み込み中</p></main>`;
+const view = document.querySelector<HTMLElement>("#view")!;
 
 function message(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -21,19 +22,6 @@ async function openStore(): Promise<FileStore> {
   }
 }
 
-function render(kb: Kb, note: string): void {
-  const status = document.querySelector<HTMLParagraphElement>("#status")!;
-  const list = document.querySelector<HTMLUListElement>("#pages")!;
-  status.textContent = `${kb.index.size}ページ（${note}）`;
-  list.replaceChildren(
-    ...[...kb.index.pages.values()].sort(byUpdatedDesc).map((page) => {
-      const li = document.createElement("li");
-      li.textContent = page.title;
-      return li;
-    }),
-  );
-}
-
 // 描画を1回挟む。見えていないタブでは requestAnimationFrame が止まるので、表に出るまで逆引きも差分も取らない。
 // それで失うものはないので、そのままにしている
 function nextFrame(): Promise<void> {
@@ -41,7 +29,6 @@ function nextFrame(): Promise<void> {
 }
 
 // 起動。控えの解析結果から索引を作って先に出し、逆引きを作り、その後で差分を取って反映する。
-// 表示は段階3で作るので、いまは一覧を出すだけ。
 // performance.measure の open・reverse・sync は perf/ の計測で読む
 async function start(): Promise<void> {
   performance.mark("open:start");
@@ -51,7 +38,24 @@ async function start(): Promise<void> {
   const kb = await Kb.open(store, (step, ms) => performance.measure(`open:${step}`, { start: performance.now() - ms }));
   performance.measure("open:record+index", "open:record");
   performance.measure("open", "open:start");
-  render(kb, kb.rebuilt ? "控えから解析し直した。差分を確認中" : "差分を確認中");
+
+  // 差分を取る前の一覧には、控えの状態を添える。取り終えたら結果に差し替える
+  let note = kb.rebuilt ? "控えから解析し直した。差分を確認中" : "差分を確認中";
+  const render = (route: Route) => {
+    const seq = beginRender();
+    switch (route.kind) {
+      case "page":
+        void showPage(kb, route.name, view, seq);
+        break;
+      case "home":
+      case "all":
+        showList(kb, view, note);
+        break;
+      default:
+        view.innerHTML = `<h1>web-b2</h1><p>このURLはまだ扱えない: ${escapeHtml(route.kind === "unknown" ? route.path : route.kind)}</p>`;
+    }
+  };
+  const router = startRouter(render);
 
   await nextFrame();
   performance.mark("reverse:start");
@@ -60,13 +64,22 @@ async function start(): Promise<void> {
 
   // 差分を取れないとき（オフライン、Accessのセッション切れ）は控えの索引のまま使い、その旨を出す
   performance.mark("sync:start");
+  let changed = false;
   try {
     const result = await kb.sync(new ApiSource());
-    render(kb, `${result.fetched.length}件を読み直し`);
+    note = `${result.fetched.length}件を読み直し`;
+    changed = result.fetched.length + result.removed.length > 0;
   } catch (e) {
-    render(kb, `差分を取れなかったので控えを表示: ${message(e)}`);
+    note = `差分を取れなかったので控えを表示: ${message(e)}`;
   }
   performance.measure("sync", "sync:start");
+  // 何か変わったときだけ表示を作り直す（変わっていないのに作り直すと、図が描き直されて選択が消える。段階5では編集中の内容も）。
+  // 変わっていなければ一覧の状態の文だけ差し替える
+  if (changed) render(router.current());
+  else {
+    const status = document.querySelector("#status");
+    if (status) status.textContent = statusText(kb, note);
+  }
 }
 
 void start();
