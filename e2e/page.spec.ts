@@ -15,7 +15,7 @@ test("見本ページが表示され、リンクをクリックして遷移で�
   await page.evaluate(() => {
     (window as unknown as { __alive: number }).__alive = 1;
   });
-  await page.getByRole("link", { name: "読書リスト" }).click();
+  await page.locator(".body").getByRole("link", { name: "読書リスト" }).click();
   await expect(page).toHaveURL(/\/p\/2026-01-10-reading-list$/);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("読書リスト");
   expect(await page.evaluate(() => (window as unknown as { __alive?: number }).__alive)).toBe(1);
@@ -25,7 +25,7 @@ test("見本ページが表示され、リンクをクリックして遷移で�
   await expect(page.locator(".body")).toContainText("）#読了");
 
   // 見本の本C の「 #読了」はタグ。まだないページを開くと見出しだけ出る
-  await page.getByRole("link", { name: "2026-01-15-book-c" }).click();
+  await page.locator(".body").getByRole("link", { name: "2026-01-15-book-c" }).click();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("見本の本C");
   await page.locator("a.tag", { hasText: "#読了" }).click();
   await expect(page).toHaveURL(/\/p\/%E8%AA%AD%E4%BA%86$/);
@@ -49,7 +49,7 @@ test("画像は Worker 経由で出て、.md へのリンクはページへ転�
   const img = page.locator("img[alt=点]");
   await expect(img).toHaveAttribute("src", "/api/files/notes/img/dot.png");
   await expect.poll(() => img.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBeGreaterThan(0);
-  const link = page.getByRole("link", { name: "2026-01-16" });
+  const link = page.locator(".body").getByRole("link", { name: "2026-01-16" });
   await expect(link).toHaveAttribute("href", "/p/2026-01-16-mermaid-sample");
   await link.click();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Mermaidの見本");
