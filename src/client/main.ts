@@ -5,13 +5,15 @@ import { type Route, startRouter } from "./router";
 import { search } from "./search";
 import { firstLink } from "./md";
 import { Scripting } from "./scripting";
+import { dropClean } from "./drafts";
+import { SAVE_DELAY, Saver } from "./saver";
 import { DEFAULT_SETTINGS, type Settings } from "./settings";
 import { ApiSource } from "./source";
 import { type FileStore, IdbStore, MemoryStore } from "./store";
-import { beginRender, escapeHtml, isEditing, leavePage, showAll, showPage, stale, statusText } from "./view";
+import { beginRender, currentEditingPath, escapeHtml, isEditing, leavePage, showAll, showPage, stale, statusText } from "./view";
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
-app.innerHTML = `<header id="top"><nav id="links"></nav><input id="q" type="search" placeholder="検索" autocomplete="off" aria-label="検索"></header><main id="view"><p id="status">読み込み中</p></main>`;
+app.innerHTML = `<header id="top"><nav id="links"></nav><input id="q" type="search" placeholder="検索" autocomplete="off" aria-label="検索"><span id="save-note"></span></header><main id="view"><p id="status">読み込み中</p></main>`;
 const view = document.querySelector<HTMLElement>("#view")!;
 const q = document.querySelector<HTMLInputElement>("#q")!;
 const links = document.querySelector<HTMLElement>("#links")!;
@@ -88,6 +90,20 @@ async function start(): Promise<void> {
     }
   };
   const scripting = new Scripting(kb);
+  const source = new ApiSource();
+  // 保存。結果はヘッダーの右端に出す（失敗したときだけ文が残る）
+  const saveNote = document.querySelector<HTMLElement>("#save-note")!;
+  const saver = new Saver(kb, source, today, SAVE_DELAY, (result) => {
+    saveNote.textContent = result.ok ? "" : `保存できない: ${result.error}`;
+    saveNote.title = result.ok ? "" : "下書きは残っている。次の編集かページ移動でもう一度送る";
+  });
+  // タブを閉じるときに保存する。keepalive の fetch はページが消えても送り終える。
+  // 裏に回るとき（タブの切り替え）はページが消えないので普通の fetch で保存する（DECISIONS.md 2026-09-27「保存時の updated」）
+  window.addEventListener("pagehide", () => void saver.flush({ keepalive: true }));
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") void saver.flush();
+  });
+
   let settings = await loadSettings();
   applySettings(kb, settings);
   scripting.load(settings.script, settings.name);
@@ -113,8 +129,13 @@ async function start(): Promise<void> {
 
   const render = (route: Route) => {
     const seq = beginRender();
-    // 前のルートの編集を閉じる
+    // 前のルートの編集を閉じ、基準と同じ下書きを片付け、変わっている下書きを保存する（ページ移動での保存）。
+    // 保存できた下書きも片付けるが、そのときエディタで開いているページのものは残す（開いたばかりの下書きを消すと入力が届かなくなる）
     leavePage();
+    dropClean();
+    void saver.flush().then((results) => {
+      for (const r of results) if (r.ok && r.path !== currentEditingPath()) dropClean(r.path);
+    });
     // 検索欄の中身は URL に合わせる。/all 以外では空
     const query = route.kind === "all" ? route.q : "";
     if (document.activeElement !== q) q.value = query;
@@ -180,7 +201,7 @@ async function start(): Promise<void> {
   performance.mark("sync:start");
   let changed = false;
   try {
-    const result = await kb.sync(new ApiSource());
+    const result = await kb.sync(source);
     note = `${result.fetched.length}件を読み直し`;
     changed = result.fetched.length + result.removed.length > 0;
   } catch (e) {

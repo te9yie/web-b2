@@ -18,7 +18,15 @@ class FakeSource implements Source {
     if (!f) throw new Error(`ない: ${path}`);
     return { ...f };
   }
+
+  async write(): Promise<{ sha: string }> {
+    throw new Error("このテストでは書かない");
+  }
 }
+
+const noWrite = async (): Promise<{ sha: string }> => {
+  throw new Error("このテストでは書かない");
+};
 
 // 控えの読み書きを数える
 class CountingStore extends MemoryStore {
@@ -260,6 +268,7 @@ describe("Kb.open と sync", () => {
     let inFlight = 0;
     let max = 0;
     const source: Source = {
+      write: noWrite,
       list: async () => files.map(({ path, sha }) => ({ path, sha })),
       read: async (path) => {
         inFlight++;
@@ -329,6 +338,7 @@ describe("Kb.open と sync", () => {
 
   it("控えの鍵は取り込み元が返した path ではなく要求した path", async () => {
     const source: Source = {
+      write: noWrite,
       list: async () => [{ path: "notes/a.md", sha: "s" }],
       read: async () => ({ path: "./notes/a.md", sha: "s", content: "# A" }),
     };

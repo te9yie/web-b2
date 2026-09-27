@@ -3,10 +3,17 @@
 
 import type { StoredFile } from "./store";
 
+export interface WriteOptions {
+  // タブを閉じるときの保存。ページが消えても送り終える
+  keepalive?: boolean;
+}
+
 export interface Source {
   list(): Promise<{ path: string; sha: string }[]>;
   // 一覧に出たあとで消えたファイルは NotFoundError を投げる。取り込みはそれを「消えた」として扱う
   read(path: string): Promise<StoredFile>;
+  // 書き込み。sha は編集を始めたときの値で、新しいページは null。message はコミットメッセージ。新しい sha を返す
+  write(path: string, content: string, sha: string | null, message: string, options?: WriteOptions): Promise<{ sha: string }>;
 }
 
 export class NotFoundError extends Error {}
@@ -57,5 +64,17 @@ export class ApiSource implements Source {
       throw new Error(`APIの応答が異常: ${path} の sha か content がない`);
     }
     return { path, sha: body.sha, content: body.content };
+  }
+
+  async write(path: string, content: string, sha: string | null, message: string, options: WriteOptions = {}): Promise<{ sha: string }> {
+    const res = await this.fetchFn(`/api/pages/${encodePath(path)}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ content, sha, message }),
+      keepalive: options.keepalive ?? false,
+    });
+    const body = await readJson(res);
+    if (!isRecord(body) || typeof body.sha !== "string") throw new Error(`APIの応答が異常: ${path} の書き込みで sha が返らない`);
+    return { sha: body.sha };
   }
 }

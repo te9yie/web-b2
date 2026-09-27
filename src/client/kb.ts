@@ -246,6 +246,14 @@ export class Kb {
     return this.store.get(path);
   }
 
+  // ローカルで書いた1ページを、控え・索引・解析結果に反映する（保存のあとに、サーバーが返した sha で呼ぶ）
+  async put(file: StoredFile): Promise<void> {
+    await this.loadLinks();
+    await this.store.put([file]);
+    this.apply(file);
+    await this.saveIndex();
+  }
+
   // 本文つきのページ。ref は name でも title でも [[ ]] 付きでもよい。表示のときに、そのページの分だけ控えから読む
   async page(ref: string): Promise<Page | null> {
     const found = this.index.resolve(ref);
