@@ -1,8 +1,7 @@
 // settings ページの読み取り（SPEC.md「settings ページ」）。H1 が settings のページの見出しごとに設定を読む。
 // ページや見出しがなければ既定の値
 
-import { codeBlock, listItems, section } from "./md";
-import { WIKILINK } from "./page";
+import { codeBlock, firstLink, listItems, section } from "./md";
 
 export interface HeaderLink {
   label: string;
@@ -12,7 +11,11 @@ export interface HeaderLink {
 }
 
 export interface Settings {
-  // 「トップ」の最初の [[リンク]] の名前。なければ null（今日の日付ページ）。マクロは呼ぶ側が先に展開する
+  // settings ページの name。なければ null（すべて既定の値）
+  name: string | null;
+  // 「トップ」の節の生の文字列。段階4でマクロを展開してから最初の [[リンク]] を取るために持つ
+  topSection: string | null;
+  // 「トップ」の最初の [[リンク]] の名前（展開前）。なければ null（今日の日付ページ）
   top: string | null;
   // 「ヘッダー」の箇条書き。なければ既定（今日・一覧）
   header: HeaderLink[];
@@ -29,27 +32,34 @@ export const DEFAULT_HEADER: HeaderLink[] = [
 
 export const SETTINGS_NAME = "settings";
 
+export const DEFAULT_SETTINGS: Settings = { name: null, topSection: null, top: null, header: DEFAULT_HEADER, css: null, script: null };
+
 function parseHeaderItem(item: string): HeaderLink | null {
   const wiki = /^\[\[([^\[\]|\r\n]+?)(?:\|([^\[\]\r\n]*))?\]\]$/.exec(item.trim());
   if (wiki) {
     const target = wiki[1].trim();
     return target === "" ? null : { label: (wiki[2] ?? "").trim() || target, target, page: true };
   }
-  const md = /^\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)$/.exec(item.trim());
-  if (md) return { label: md[1].trim() || md[2], target: md[2], page: false };
+  // [表示名](URL) と [表示名](<URL>)。URL に空白や ) を含むものは読まない
+  const md = /^\[([^\]]*)\]\((?:<([^<>]*)>|([^)\s]+))(?:\s+["'][^"']*["'])?\)$/.exec(item.trim());
+  if (md) {
+    const url = md[2] ?? md[3];
+    return { label: md[1].trim() || url, target: url, page: false };
+  }
   return null;
 }
 
-export function parseSettings(body: string | null): Settings {
-  if (body === null) return { top: null, header: DEFAULT_HEADER, css: null, script: null };
+export function parseSettings(page: { name: string; body: string } | null): Settings {
+  if (page === null) return DEFAULT_SETTINGS;
+  const body = page.body;
   const topSection = section(body, "トップ");
-  const topMatch = topSection === null ? null : [...topSection.matchAll(WIKILINK)][0];
-  const top = topMatch ? topMatch[1].trim() || null : null;
   const headerSection = section(body, "ヘッダー");
   const header = headerSection === null ? DEFAULT_HEADER : listItems(headerSection).map(parseHeaderItem).filter((x): x is HeaderLink => x !== null);
   return {
-    top,
-    header: headerSection !== null && header.length === 0 ? DEFAULT_HEADER : header,
+    name: page.name,
+    topSection,
+    top: topSection === null ? null : firstLink(topSection),
+    header: header.length === 0 ? DEFAULT_HEADER : header,
     css: codeBlock(body, "style.css"),
     script: codeBlock(body, "script.js"),
   };

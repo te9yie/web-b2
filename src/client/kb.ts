@@ -238,8 +238,7 @@ export class Kb {
 
   // settings ページ（SPEC.md「settings ページ」）。name か H1 が settings のページを読む。なければ既定の値
   async settings(): Promise<Settings> {
-    const page = await this.page(SETTINGS_NAME);
-    return parseSettings(page?.body ?? null);
+    return parseSettings(await this.page(SETTINGS_NAME));
   }
 
   // 本文つきのページ。ref は name でも title でも [[ ]] 付きでもよい。表示のときに、そのページの分だけ控えから読む

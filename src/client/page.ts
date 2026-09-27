@@ -219,7 +219,8 @@ export function extractLinks(body: string, masked: string = maskCode(body)): str
 
 // 本文の最初の `# ` 行の中身。コードブロックの中は見ない
 export function extractH1(body: string, masked: string = maskCode(body)): string | null {
-  const m = /^(#[ \t]+)(.+?)[ \t]*$/mu.exec(masked);
+  // 末尾の閉じの #（空白の後ろだけ）は見出しの文字に含めない。md.ts の見出しの読み方と同じ規則
+  const m = /^(#[ \t]+)(.+?)(?:[ \t]+#+)?[ \t]*$/mu.exec(masked);
   if (!m) return null;
   const start = m.index + m[1].length;
   const text = body.slice(start, start + m[2].length).trim();

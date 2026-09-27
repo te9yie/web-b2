@@ -1,7 +1,7 @@
 // Markdown の切り出し。settings ページの読み取りと、スクリプトから使う kb.section / kb.codeBlock（SPEC.md「マクロ」）の本体。
 // 見出しと囲いはコードブロックの外だけを見る
 
-import { maskCode } from "./page";
+import { WIKILINK, maskCode } from "./page";
 
 interface Heading {
   level: number;
@@ -14,7 +14,8 @@ interface Heading {
 function headings(md: string): Heading[] {
   const masked = maskCode(md);
   const out: Heading[] = [];
-  for (const m of masked.matchAll(/^(#{1,6})([ \t]+)(.*?)[ \t]*(?:#+[ \t]*)?$/gmu)) {
+  // 末尾の閉じの #（空白の後ろだけ。`## C#` の # は文字）は含めない。page.ts の extractH1 と同じ規則
+  for (const m of masked.matchAll(/^(#{1,6})([ \t]+)(.*?)(?:[ \t]+#+)?[ \t]*$/gmu)) {
     // 位置は塗りつぶした文字列で探し、文字はもとの文字列から取る
     const textStart = m.index + m[1].length + m[2].length;
     const text = md.slice(textStart, textStart + m[3].length).trim();
@@ -35,7 +36,17 @@ export function section(md: string, heading: string): string | null {
   return md.slice(h.next, end ? end.start : md.length);
 }
 
-// 名前付きコードブロック（```js script.js のように、言語の後ろの語が名前）の中身。同名が複数あれば改行で連結。なければ null
+// コードの外の最初の [[x]]・[[x|表示名]] の x。なければ null
+export function firstLink(md: string): string | null {
+  const masked = maskCode(md);
+  const m = new RegExp(WIKILINK.source).exec(masked);
+  if (!m) return null;
+  const text = md.slice(m.index + 2, m.index + 2 + m[1].length).trim();
+  return text === "" ? null : text;
+}
+
+// 名前付きコードブロック（```js script.js のように、言語の後ろの語が名前）の中身。同名が複数あれば改行で連結。なければ null。
+// 行ごとに読むので、改行は LF にそろう（section は元の文字列のまま切り出すので CRLF が残る）
 export function codeBlock(md: string, name: string): string | null {
   const lines = md.split(/\r?\n/);
   const found: string[] = [];

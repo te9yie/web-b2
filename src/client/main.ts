@@ -3,7 +3,7 @@ import { Kb } from "./kb";
 import { pageUrl } from "./render";
 import { type Route, startRouter } from "./router";
 import { search } from "./search";
-import type { Settings } from "./settings";
+import { DEFAULT_SETTINGS, type Settings } from "./settings";
 import { ApiSource } from "./source";
 import { type FileStore, IdbStore, MemoryStore } from "./store";
 import { beginRender, escapeHtml, showAll, showPage, stale, statusText } from "./view";
@@ -74,7 +74,16 @@ async function start(): Promise<void> {
   performance.measure("open:record+index", "open:record");
   performance.measure("open", "open:start");
 
-  let settings = await kb.settings();
+  // settings を読めなくても本体は動かす（既定の値）
+  const loadSettings = async () => {
+    try {
+      return await kb.settings();
+    } catch (e) {
+      console.warn(`settings を読めないので既定の値で動かす: ${message(e)}`);
+      return DEFAULT_SETTINGS;
+    }
+  };
+  let settings = await loadSettings();
   applySettings(kb, settings);
 
   // 差分を取る前の一覧には、控えの状態を添える。取り終えたら結果に差し替える
@@ -105,10 +114,14 @@ async function start(): Promise<void> {
       case "page":
         void showPage(kb, route.name, view, seq);
         break;
-      case "home":
-        // URL を /p/<name> に差し替えて描く（履歴には / を残さない）
-        router.replace(pageUrl(homeName(settings)));
+      case "home": {
+        // URL を /p/<name> に差し替えて描く（履歴には / を残さない）。
+        // 同じページから「今日」を押したときは、同じ URL を重ねずに戻る
+        const target = pageUrl(homeName(settings));
+        if (router.previous() === target) history.back();
+        else router.replace(target);
         break;
+      }
       case "all":
         showResults(query, seq);
         break;
@@ -169,7 +182,7 @@ async function start(): Promise<void> {
   const route = router.current();
   if (changed) {
     // settings が変わっていることもあるので読み直す
-    settings = await kb.settings();
+    settings = await loadSettings();
     applySettings(kb, settings);
     render(route);
   } else if (route.kind === "all" && route.q === "") {

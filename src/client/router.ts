@@ -28,6 +28,8 @@ export function parseRoute(pathname: string, search = ""): Route {
 
 export interface Router {
   current(): Route;
+  // 直前に pushState した遷移の、遷移元のパス（`/p/x` の形）。まだ遷移していなければ null
+  previous(): string | null;
   // pushState で遷移して描画する
   navigate(path: string): void;
   // 履歴を積まずに URL を差し替えて描画する（検索語の変化など）
@@ -37,8 +39,10 @@ export interface Router {
 // onRoute は遷移のたびに呼ばれる。最初の描画は呼ぶ側が current() で行う
 export function startRouter(onRoute: (route: Route) => void): Router {
   const current = () => parseRoute(location.pathname, location.search);
+  let previous: string | null = null;
   const navigate = (path: string) => {
     if (path === location.pathname + location.search) return;
+    previous = location.pathname + location.search;
     history.pushState(null, "", path);
     // 新しいページは先頭から見せる（戻る・進むはブラウザが位置を戻す）
     window.scrollTo(0, 0);
@@ -63,5 +67,5 @@ export function startRouter(onRoute: (route: Route) => void): Router {
     e.preventDefault();
     navigate(href);
   });
-  return { current, navigate, replace };
+  return { current, previous: () => previous, navigate, replace };
 }
