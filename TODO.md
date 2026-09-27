@@ -21,7 +21,7 @@ AIには権限がなく、人がやる必要があること。上から順にや
   - Secret と AUD を登録しても401のままだった。原因は、Previews Base のシークレットが既存のプレビューに反映されないことだった。調べるために401の本文へ一時的に入れた理由の表示は消した。
   - 本番でも401だったのは、プロダクション側がシークレットではなくテキストの変数で登録されていて、`wrangler deploy` で消えたためと推測している（未確認）。シークレットで登録し直すと `{"error":"まだない"}` になった（2026-09-27）。AUDは、ログイン画面への転送先URLの `kid=` の値と同じだった。
   - 以後、Workerの設定値は「設定」タブで、プロダクションと Previews Base の両方に、タイプを「シークレット」にして登録する。Previews Base のシークレットは、登録した後に作られたプレビュー（新しいブランチの最初のpush）にしか入らない。
-  - `GITHUB_TOKEN` と `KB_REPO` はプロダクションだけ（2026-09-28）。プレビューで試すときは Previews Base に試し用のリポジトリとトークンを入れる（`DECISIONS.md`）。
+  - `GITHUB_TOKEN` と `KB_REPO` はプロダクションだけ（2026-09-28）。Previews Base には初めから入れていない（人が確認、2026-09-28）。プレビューで試すときは Previews Base に試し用のリポジトリとトークンを入れる（`DECISIONS.md`）。
 - [x] GitHubの Settings > Developer settings > Personal access tokens > Fine-grained tokens で、Repository access を知識庫リポジトリだけ、Repository permissions を Contents: Read and write だけにしたトークンを作る。期限の日を控える
 - [x] Workerの Settings > Variables and Secrets で、`GITHUB_TOKEN` と `KB_REPO`（`owner/repo`）を Secret として登録する。公開リポジトリの wrangler 設定には書かない
 - [x] `README.md` の「Cloudflare に置く」を読み、実際にした設定と食い違いがないか確かめる。とくにダッシュボードの項目名（「設定」タブ、Previews Base、「ドメイン」タブの Worker URL）と、シークレットを登録しただけで本番に反映されたか
@@ -117,7 +117,7 @@ AIには権限がなく、人がやる必要があること。上から順にや
 
 - [x] `/new?title=&body=` と `/append?page=&body=`。完了条件: e2eで両方のURLからページが作られる・追記される
   - `src/client/capture.ts`（行き先の判定 `planCapture`、追記の `appendBody`、注意の `captureWarnings`、確認画面 `showCapture`）。確認画面で「保存」を押すまで書かず、差分の同期（`whenSynced`）を待ってから押せる。保存は `Saver.saveNow` で、失敗したら下書きを戻す。`/new` の title が既存のページなら追記にする（`DECISIONS.md`）。
-  - URL の長さの上限と、Access のログインを挟んだときにクエリが残るかは未確認。次の README のタスクで、人が長い本文のブックマークレットで確かめる。
+  - URL の長さの上限と、Access のログインを挟んだときにクエリが残るかは未確認。次の README のタスクで、人が長い本文のブックマークレットで確かめる（完成後の「ブックマークレットで人が確かめること」に移した）。
   - 保存の前に本人の確認（内容を見せて「保存」を押す）を挟む。リンクを踏むだけで任意の本文が保存されて表示されると、消毒をしていない表示（`DECISIONS.md` 2026-09-27「marked と mermaid を入れる」）と合わせて、細工したリンクから知識庫を読み書きされる。
   - title を直す欄（`input type=text`）は改行を消すので、欄に入れる前に `captureTitle` で空白と改行を1つの空白にまとめる（そのままだと改行で分かれた「話」と「続き」が「話続き」と詰まっていた）。
 - [x] `README.md` にブックマークレットの例と、Cloudflare側の設定手順を書く。完了条件: 人が読んで手順どおりに設定できる

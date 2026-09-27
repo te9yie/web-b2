@@ -90,7 +90,9 @@ Access がかかっていなくても、Worker は JWT のないリクエスト�
 1. GitHub の Settings > Developer settings > Personal access tokens > Fine-grained tokens でトークンを作る。知識庫のリポジトリが組織のものなら、Resource owner をその組織にする（自分のままだと組織のリポジトリを選べない）。Repository access は「Only select repositories」にして知識庫のリポジトリだけを選び、Repository permissions は Contents を Read and write にする（Metadata の Read-only は自動で付く）。ほかの権限は付けない。
 2. 期限の日を控える。切れると `/api/*` が 502 になる。
 3. 「設定」タブで、プロダクションだけに `GITHUB_TOKEN` と `KB_REPO` をシークレットで登録する。ブランチが `main` でなければ `KB_BRANCH` を、ページの置き場が `notes` でなければ `KB_DIR` も登録する。Previews Base には登録しない（プレビューから本番の知識庫を読み書きしないため）。
-4. プレビューでも読み書きを試したいときだけ、試し用のリポジトリを作り、1 と同じ手順でそのリポジトリだけを選んだトークンを別に作る。Previews Base に、そのトークンを `GITHUB_TOKEN`、試し用のリポジトリを `KB_REPO` として登録する。本番のトークンは使い回さない。
+4. プレビューでも読み書きを試したいときだけ、試し用のリポジトリを作り、1 と同じ手順でそのリポジトリだけを選んだトークンを別に作る。Previews Base に、そのトークンを `GITHUB_TOKEN`、試し用のリポジトリを `KB_REPO` として登録する。本番のトークンは使い回さない。試し用のリポジトリは README などを付けて作り、`main` にコミットを1つ以上置く（空のリポジトリにはブランチがなく、ブランチの取得で 502 になる見込み。推測）。Previews Base に `KB_BRANCH`・`KB_DIR` を登録しなければ、ブランチとページの置き場は既定の `main` と `notes` になり、本番の値は使われない。`notes/` に `.md` がないうちは `pages` が空になる。
+
+前の手順（プロダクションと Previews Base の両方に登録する）で Previews Base にも `GITHUB_TOKEN` と `KB_REPO` を入れていたら、Previews Base から消す。作成済みのプレビューには消した後も残る見込み（未確認）なので、本番のトークンを GitHub で作り直してプロダクションだけに登録し直し、古いトークンを GitHub で削除する。
 
 知識庫のブランチに保護ルール（PR を必須にするなど）があると、書き込みは失敗する（推測。そのときの応答は未確認）。
 
@@ -104,7 +106,7 @@ Access がかかっていなくても、Worker は JWT のないリクエスト�
 
 ### うまくいかないとき
 
-`/` か `/api/pages` を開いたときに出るもので見分ける。このアプリで確かめたのは Access の 401 だけで、502 の行はどれも GitHub の一般的な応答から考えたもの。プレビューで出たときは、`GITHUB_TOKEN`・`KB_REPO`・`KB_BRANCH`・`KB_DIR` を Previews Base の値（試し用のリポジトリとトークン）に読み替える。
+`/` か `/api/pages` を開いたときに出るもので見分ける。このアプリで確かめたのは Access の 401 だけで、502 の行はどれも GitHub の一般的な応答から考えたもの。プレビューで出たときは、`GITHUB_TOKEN`・`KB_REPO`・`KB_BRANCH`・`KB_DIR` を Previews Base の値（試し用のリポジトリとトークン。`KB_BRANCH`・`KB_DIR` は、登録していなければ既定の `main` と `notes`）に読み替える。
 
 | 見えるもの | 考えられる原因 |
 | --- | --- |
@@ -115,11 +117,11 @@ Access がかかっていなくても、Worker は JWT のないリクエスト�
 | 502 `GitHub: ブランチの取得が 403` | トークンの権限が足りない。組織のリポジトリなら、組織が fine-grained token を許可していない |
 | 502 `GitHub: ブランチの取得が 404` | `KB_REPO` の打ち間違い、トークンの対象にそのリポジトリが入っていない、`KB_BRANCH` のブランチがない、のどれか |
 | 502 `GitHub: ツリーが大きすぎて一覧を取り切れない` | リポジトリのファイルが多すぎて、GitHub の Trees API が一覧を切り詰めた |
-| `pages` が空 | `KB_DIR` が違う。先頭か末尾に `/` を付けていないか |
+| `pages` が空 | `KB_DIR` が違う。先頭か末尾に `/` を付けていないか。プレビューの試し用のリポジトリなら、`KB_DIR`（既定 `notes`）に `.md` がまだない |
 
 ### トークンの期限が切れたとき、設定値を変えたとき
 
-新しいトークンを作り、プロダクションの `GITHUB_TOKEN` を登録し直す。Previews Base に試し用のトークンを入れているなら、そちらは別のトークンで期限も別なので、切れたら試し用のリポジトリだけを選んで作り直し、Previews Base で登録し直す。`ACCESS_TEAM_DOMAIN` と `ACCESS_AUD` を変えるときは両方で直す。Previews Base の変更は作成済みのプレビューには入らないので、プレビューで確かめるときは新しいブランチを push する。
+新しいトークンを作り、プロダクションの `GITHUB_TOKEN` を登録し直す。Previews Base に試し用のトークンを入れているなら、そちらは別のトークンで期限も別なので、切れたら試し用のリポジトリだけを選んで作り直し、Previews Base で登録し直す。`ACCESS_TEAM_DOMAIN` と `ACCESS_AUD` を変えるときは両方で直す。`KB_REPO`・`KB_BRANCH`・`KB_DIR` を変えるときはプロダクションで直す（試し用を入れていれば、Previews Base のほうは試し用の値のまま）。プロダクションのシークレットは、登録したときと同じくビルドなしで反映される見込み（登録し直したときは未確認）。Previews Base の変更は作成済みのプレビューには入らないので、プレビューで確かめるときは新しいブランチを push する。
 
 ## ブックマークレットで取り込む
 
