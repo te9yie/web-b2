@@ -2,6 +2,16 @@
 
 新しいものを上に足す。`SPEC.md` を変えるときは先にここに書く。
 
+## 2026-09-27 差分は Trees API の一覧で取り、初回は tarball。compare は使わない
+
+2回目以降の差分は、最後に見たコミットからの compare ではなく、Trees API（`GET /repos/{repo}/git/trees/{tree}?recursive=1`）で全ファイルの blob の sha を一度に取り、控えの sha と違うものだけ読み直す。ローカルモードの `GET /api/pages` と同じ形（`{ pages: [{ path, sha }], dir }`）になるので、ブラウザの取り込み（`Kb.sync`）はそのまま動く。最後に見たコミットを覚える必要がなく、compare の300ファイルの上限にもかからない。費用は起動のたびに一覧（1万ファイルで約1MB）を取ることで、GitHub の API の回数は1回（ブランチ）+1回（ツリー）。
+
+初回は tarball（`GET /api/archive` が `GET /repos/{repo}/tarball/{branch}` を流す）で全ファイルを一度に取る。1万ページを Contents API で1件ずつ取ると1万回の呼び出しになり、GitHub の1時間5,000回の上限を超える。tarball のエントリには blob の sha がないので、ブラウザが `blob <バイト数>\0` 付きの SHA-1（`blobShaOf`）を計算して一覧の sha と突き合わせる。一覧と tarball が別のコミットになることがあるので、一覧に `head`（ブランチの先頭のコミット）を、tarball に `x-head` を付け、ブラウザ側で同じかを見る。違えば次の差分で直る。
+
+ページの取得は Contents API（base64。1MBを超えると中身が返らないので blob を取る）、書き込みは Contents API の PUT。GitHub の 409（sha の不一致）・422（sha なしで既存）・404（sha を添えたのに消えている）は、いまの中身を GET して `{ error, current }` の 409 に写す。正しい sha でも ref の更新の競り合いで 409 になることがあるので、いまの sha が送られた sha と同じなら一度だけ試し直す。
+
+`/api/files/<path>` と `/api/pages/<path>` で、ドットで始まる区切り（`.git`、`.github` など）を含むパスは 400 にする。ローカルモードにも同じ制限を入れ、パスの検証と content-type は `src/shared/api-path.ts` で共有する。
+
 ## 2026-09-27 競合は 409 で相手の内容を返し、その下書きは自動で送り直さず、ページで選ばせる
 
 `PUT /api/pages/<path>` は、送られた `sha` がいまのファイルの `sha` と違えば書かずに 409 を返す。`sha: null` は新しいページの意味なので、ファイルがあれば 409。本文は `{ error, current: { path, sha, content } }` で、相手（いまのファイル）の内容を返す。送った側の内容はブラウザが持っているので、サーバーが返すのは相手の分だけでよい。GitHub の Contents API も `sha` の不一致を 409（`sha` なしで既存なら 422）で返すので、Worker はそれを同じ形に写す。

@@ -2,7 +2,8 @@
 // Request を受けて Response を返す関数にしておき、Viteの開発サーバーにもテストにもそのまま渡す。
 import { createHash } from "node:crypto";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
-import { dirname, extname, join, relative, sep } from "node:path";
+import { dirname, join, relative, sep } from "node:path";
+import { ApiError, contentTypeOf, json, pageSegments, splitPath } from "../shared/api-path.ts";
 
 export interface LocalOptions {
   // 知識庫のリポジトリのルートにあたるディレクトリ
@@ -16,49 +17,6 @@ export function blobSha(content: Buffer): string {
   return createHash("sha1").update(`blob ${content.length}\0`).update(content).digest("hex");
 }
 
-const contentTypes: Record<string, string> = {
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".gif": "image/gif",
-  ".webp": "image/webp",
-  ".svg": "image/svg+xml",
-  ".pdf": "application/pdf",
-  ".txt": "text/plain; charset=utf-8",
-  ".md": "text/markdown; charset=utf-8",
-};
-
-class HttpError extends Error {
-  constructor(
-    readonly status: number,
-    message: string,
-  ) {
-    super(message);
-  }
-}
-
-function json(body: unknown, status = 200): Response {
-  return Response.json(body, { status });
-}
-
-// URLのパスの残りをリポジトリ内の相対パスの区切りに分ける。ルートの外に出るものは拒否する。
-function splitPath(rest: string): string[] {
-  const segments = rest.split("/").map((s) => {
-    try {
-      return decodeURIComponent(s);
-    } catch {
-      throw new HttpError(400, "パスを解釈できない");
-    }
-  });
-  for (const s of segments) {
-    // %2F や %5C を戻すと区切りになるので、戻したあとで調べる
-    if (s === "" || s === "." || s === ".." || /[/\\\0]/.test(s)) {
-      throw new HttpError(400, "不正なパス");
-    }
-  }
-  return segments;
-}
-
 function isNotFound(e: unknown): boolean {
   const code = (e as NodeJS.ErrnoException).code;
   return code === "ENOENT" || code === "ENOTDIR" || code === "EISDIR";
@@ -67,15 +25,7 @@ function isNotFound(e: unknown): boolean {
 export function createLocalApi({ root, dir }: LocalOptions): (req: Request) => Promise<Response> {
   const dirSegments = dir.split("/").filter((s) => s !== "");
 
-  // ページとして読み書きしてよいのは KB_DIR の下の .md だけ
-  function pagePath(rest: string): string[] {
-    const segments = splitPath(rest);
-    const inDir = dirSegments.every((s, i) => segments[i] === s) && segments.length > dirSegments.length;
-    if (!inDir || !segments[segments.length - 1].endsWith(".md")) {
-      throw new HttpError(400, `${dir} の下の .md ではない`);
-    }
-    return segments;
-  }
+  const pagePath = (rest: string) => pageSegments(rest, dir);
 
   async function listPages(): Promise<Response> {
     const base = join(root, ...dirSegments);
@@ -107,11 +57,11 @@ export function createLocalApi({ root, dir }: LocalOptions): (req: Request) => P
     try {
       body = await req.json();
     } catch {
-      throw new HttpError(400, "本文がJSONではない");
+      throw new ApiError(400, "本文がJSONではない");
     }
     const { content, sha } = (body as { content?: unknown; sha?: unknown } | null) ?? {};
-    if (typeof content !== "string") throw new HttpError(400, "content がない");
-    if (sha !== undefined && sha !== null && typeof sha !== "string") throw new HttpError(400, "sha が文字列でない");
+    if (typeof content !== "string") throw new ApiError(400, "content がない");
+    if (sha !== undefined && sha !== null && typeof sha !== "string") throw new ApiError(400, "sha が文字列でない");
     const path = segments.join("/");
     const file = join(root, ...segments);
 
@@ -139,7 +89,7 @@ export function createLocalApi({ root, dir }: LocalOptions): (req: Request) => P
 
   async function getFile(segments: string[]): Promise<Response> {
     const content = await readFile(join(root, ...segments));
-    const type = contentTypes[extname(segments[segments.length - 1]).toLowerCase()] ?? "application/octet-stream";
+    const type = contentTypeOf(segments[segments.length - 1]);
     return new Response(new Uint8Array(content), {
       headers: { "content-type": type, "x-content-type-options": "nosniff" },
     });
@@ -149,22 +99,22 @@ export function createLocalApi({ root, dir }: LocalOptions): (req: Request) => P
     const { pathname } = new URL(req.url);
     try {
       if (pathname === "/api/pages") {
-        if (req.method !== "GET") throw new HttpError(405, "GETだけ");
+        if (req.method !== "GET") throw new ApiError(405, "GETだけ");
         return await listPages();
       }
       if (pathname.startsWith("/api/pages/")) {
         const segments = pagePath(pathname.slice("/api/pages/".length));
         if (req.method === "GET") return await getPage(segments);
         if (req.method === "PUT") return await putPage(segments, req);
-        throw new HttpError(405, "GETとPUTだけ");
+        throw new ApiError(405, "GETとPUTだけ");
       }
       if (pathname.startsWith("/api/files/")) {
-        if (req.method !== "GET") throw new HttpError(405, "GETだけ");
+        if (req.method !== "GET") throw new ApiError(405, "GETだけ");
         return await getFile(splitPath(pathname.slice("/api/files/".length)));
       }
-      throw new HttpError(404, "そのAPIはない");
+      throw new ApiError(404, "そのAPIはない");
     } catch (e) {
-      if (e instanceof HttpError) return json({ error: e.message }, e.status);
+      if (e instanceof ApiError) return json({ error: e.message }, e.status);
       if (isNotFound(e)) return json({ error: "ファイルがない" }, 404);
       throw e;
     }

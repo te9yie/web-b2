@@ -51,6 +51,12 @@ describe("GET /api/pages", () => {
     for (const p of pages) expect(p.sha).toMatch(/^[0-9a-f]{40}$/);
   });
 
+  it("ドットで始まる区切りを含むパスは 400（Worker と同じ）", async () => {
+    expect((await call("/api/pages/notes/.git/config.md")).status).toBe(400);
+    expect((await call("/api/files/.github/workflows/x.yml")).status).toBe(400);
+    expect((await put("/api/pages/notes/.hidden.md", { content: "x", sha: null })).status).toBe(400);
+  });
+
   it("サブディレクトリの .md も列挙する", async () => {
     await put("/api/pages/notes/sub/deep.md", { content: "# 深い\n" });
     const { pages } = (await (await call("/api/pages")).json()) as { pages: { path: string }[] };
