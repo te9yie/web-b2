@@ -80,15 +80,19 @@ export function createLocalApi({ root, dir }: LocalOptions): (req: Request) => P
   async function listPages(): Promise<Response> {
     const base = join(root, ...dirSegments);
     const entries = await readdir(base, { recursive: true, withFileTypes: true });
-    const pages = await Promise.all(
-      entries
-        .filter((e) => e.isFile() && e.name.endsWith(".md"))
-        .map(async (e) => {
-          const file = join(e.parentPath, e.name);
-          const path = relative(root, file).split(sep).join("/");
-          return { path, sha: blobSha(await readFile(file)) };
-        }),
-    );
+    const files = entries.filter((e) => e.isFile() && e.name.endsWith(".md")).map((e) => join(e.parentPath, e.name));
+    // 一度に開くファイルの数を抑える。1万件を同時に開くと EMFILE になる
+    const pages: { path: string; sha: string }[] = [];
+    for (let i = 0; i < files.length; i += 64) {
+      pages.push(
+        ...(await Promise.all(
+          files.slice(i, i + 64).map(async (file) => ({
+            path: relative(root, file).split(sep).join("/"),
+            sha: blobSha(await readFile(file)),
+          })),
+        )),
+      );
+    }
     pages.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
     return json({ pages });
   }

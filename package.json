@@ -9,7 +9,9 @@
     "dev:local": "vite",
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "perf": "vitest run --config perf/vitest.config.ts",
+    "perf:e2e": "playwright test --config perf/playwright.config.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
