@@ -2,7 +2,7 @@ import { Kb } from "./kb";
 import { type Route, startRouter } from "./router";
 import { ApiSource } from "./source";
 import { type FileStore, IdbStore, MemoryStore } from "./store";
-import { showList, showPage } from "./view";
+import { beginRender, escapeHtml, showList, showPage, statusText } from "./view";
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
 app.innerHTML = `<main id="view"><p id="status">読み込み中</p></main>`;
@@ -42,16 +42,17 @@ async function start(): Promise<void> {
   // 差分を取る前の一覧には、控えの状態を添える。取り終えたら結果に差し替える
   let note = kb.rebuilt ? "控えから解析し直した。差分を確認中" : "差分を確認中";
   const render = (route: Route) => {
+    const seq = beginRender();
     switch (route.kind) {
       case "page":
-        void showPage(kb, route.name, view);
+        void showPage(kb, route.name, view, seq);
         break;
       case "home":
       case "all":
         showList(kb, view, note);
         break;
       default:
-        view.innerHTML = `<h1>web-b2</h1><p>このURLはまだ扱えない: ${route.kind === "unknown" ? route.path : route.kind}</p>`;
+        view.innerHTML = `<h1>web-b2</h1><p>このURLはまだ扱えない: ${escapeHtml(route.kind === "unknown" ? route.path : route.kind)}</p>`;
     }
   };
   const router = startRouter(render);
@@ -63,15 +64,22 @@ async function start(): Promise<void> {
 
   // 差分を取れないとき（オフライン、Accessのセッション切れ）は控えの索引のまま使い、その旨を出す
   performance.mark("sync:start");
+  let changed = false;
   try {
     const result = await kb.sync(new ApiSource());
     note = `${result.fetched.length}件を読み直し`;
+    changed = result.fetched.length + result.removed.length > 0;
   } catch (e) {
     note = `差分を取れなかったので控えを表示: ${message(e)}`;
   }
   performance.measure("sync", "sync:start");
-  // 差分で変わったものを表示に反映する
-  render(router.current());
+  // 何か変わったときだけ表示を作り直す（変わっていないのに作り直すと、図が描き直されて選択が消える。段階5では編集中の内容も）。
+  // 変わっていなければ一覧の状態の文だけ差し替える
+  if (changed) render(router.current());
+  else {
+    const status = document.querySelector("#status");
+    if (status) status.textContent = statusText(kb, note);
+  }
 }
 
 void start();

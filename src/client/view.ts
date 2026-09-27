@@ -3,12 +3,29 @@ import type { Kb } from "./kb";
 import { byUpdatedDesc } from "./kb-index";
 import { escapeHtml, pageUrl, renderMarkdown } from "./render";
 
+export { escapeHtml };
+
+// 描画の通し番号。描画を始めるたびに beginRender() で進め、await のあとに番号が変わっていたら古い描画を捨てる
+let current = 0;
+export function beginRender(): number {
+  return ++current;
+}
+function stale(seq: number): boolean {
+  return seq !== current;
+}
+
+let mermaidReady = false;
+
 // Mermaid は大きいので、図のあるページを初めて表示するときに読み込む
-async function drawMermaid(root: HTMLElement): Promise<void> {
+async function drawMermaid(root: HTMLElement, seq: number): Promise<void> {
   const nodes = [...root.querySelectorAll<HTMLElement>("pre.mermaid")];
   if (nodes.length === 0) return;
   const { default: mermaid } = await import("mermaid");
-  mermaid.initialize({ startOnLoad: false });
+  if (stale(seq)) return;
+  if (!mermaidReady) {
+    mermaid.initialize({ startOnLoad: false });
+    mermaidReady = true;
+  }
   try {
     await mermaid.run({ nodes });
   } catch (e) {
@@ -17,13 +34,9 @@ async function drawMermaid(root: HTMLElement): Promise<void> {
   }
 }
 
-// 描画中に別のページへ移ったとき、古い描画結果を出さないための通し番号
-let sequence = 0;
-
-export async function showPage(kb: Kb, name: string, root: HTMLElement): Promise<void> {
-  const seq = ++sequence;
+export async function showPage(kb: Kb, name: string, root: HTMLElement, seq: number): Promise<void> {
   const page = await kb.page(name);
-  if (seq !== sequence) return;
+  if (stale(seq)) return;
   const exists = (ref: string) => kb.index.resolve(ref) !== null;
 
   if (!page) {
@@ -34,14 +47,22 @@ export async function showPage(kb: Kb, name: string, root: HTMLElement): Promise
   }
 
   document.title = `${page.title} - web-b2`;
-  const dates = [page.created ? `作成 ${escapeHtml(page.created)}` : "", page.updated ? `更新 ${escapeHtml(page.updated)}` : ""]
-    .filter((s) => s !== "")
-    .join(" / ");
   // H1 は本文の中にあるので、ないときだけ name を見出しにする
   const heading = page.h1 === null ? `<h1 class="from-name">${escapeHtml(page.name)}</h1>` : "";
   const html = renderMarkdown(page.body, { pagePath: page.path, exists });
-  root.innerHTML = `<article class="page">${heading}<p class="dates">${dates}</p><div class="body">${html}</div></article>`;
-  await drawMermaid(root);
+  root.innerHTML = `<article class="page">${heading}<div class="body">${html}</div></article>`;
+
+  // 作成日・更新日は見出しの直後に置く。見出しがなければ本文の前
+  const dates = document.createElement("p");
+  dates.className = "dates";
+  dates.textContent = [page.created ? `作成 ${page.created}` : "", page.updated ? `更新 ${page.updated}` : ""]
+    .filter((s) => s !== "")
+    .join(" / ");
+  const h1 = root.querySelector("article h1");
+  if (h1) h1.insertAdjacentElement("afterend", dates);
+  else root.querySelector("article")!.prepend(dates);
+
+  await drawMermaid(root, seq);
 }
 
 export function showList(kb: Kb, root: HTMLElement, note: string): void {
@@ -50,5 +71,9 @@ export function showList(kb: Kb, root: HTMLElement, note: string): void {
     .sort(byUpdatedDesc)
     .map((p) => `<li><a href="${pageUrl(p.name)}">${escapeHtml(p.title)}</a></li>`)
     .join("");
-  root.innerHTML = `<h1>web-b2</h1><p id="status">${escapeHtml(`${kb.index.size}ページ（${note}）`)}</p><ul id="pages">${items}</ul>`;
+  root.innerHTML = `<h1>web-b2</h1><p id="status">${escapeHtml(statusText(kb, note))}</p><ul id="pages">${items}</ul>`;
+}
+
+export function statusText(kb: Kb, note: string): string {
+  return `${kb.index.size}ページ（${note}）`;
 }

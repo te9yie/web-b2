@@ -196,9 +196,9 @@ function maskInlineCode(text: string): string {
 }
 
 // [[x]]・[[x|表示名]] の x
-const WIKILINK = /\[\[([^\[\]|\r\n]+?)(?:\|[^\[\]\r\n]*)?\]\]/g;
+export const WIKILINK = /\[\[([^\[\]|\r\n]+?)(?:\|[^\[\]\r\n]*)?\]\]/g;
 // 行頭または空白の直後の # に続く、空白と # 以外の文字列。行頭の `# ` は見出しなので空白で始まらない
-const TAG = new RegExp(`(?<=^|\\s)#([^\\s#${MASK}]+)`, "gmu");
+export const TAG = new RegExp(`(?<=^|\\s)#([^\\s#${MASK}]+)`, "gmu");
 
 // 本文からリンクとタグを、出てきた順に重複なしで集める。コードの中は見ない。
 // masked は maskCode(body) の結果。呼ぶ側が持っていれば渡して、塗りつぶしを繰り返さない

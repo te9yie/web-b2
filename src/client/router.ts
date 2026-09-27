@@ -38,13 +38,18 @@ export function startRouter(onRoute: (route: Route) => void): Router {
   const navigate = (path: string) => {
     if (path === location.pathname + location.search) return;
     history.pushState(null, "", path);
+    // 新しいページは先頭から見せる（戻る・進むはブラウザが位置を戻す）
+    window.scrollTo(0, 0);
     onRoute(current());
   };
   window.addEventListener("popstate", () => onRoute(current()));
   document.addEventListener("click", (e) => {
     if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
     const a = (e.target as Element | null)?.closest("a");
-    if (!a || a.target === "_blank" || a.hasAttribute("download")) return;
+    if (!a || a.hasAttribute("download")) return;
+    // 別のウィンドウや親フレームを指すものはブラウザに任せる。SVG の <a>（Mermaid の click）は target が文字列でないので属性で見る
+    const target = a.getAttribute("target");
+    if (target && target !== "_self") return;
     const href = a.getAttribute("href");
     // アプリの中の URL だけ。/api/ は Worker の応答をそのまま見せる
     if (!href || !href.startsWith("/") || href.startsWith("//") || href.startsWith("/api/")) return;

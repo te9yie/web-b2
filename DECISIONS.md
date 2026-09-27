@@ -4,9 +4,9 @@
 
 ## 2026-09-27 marked と mermaid を入れる。HTML の消毒はしない。Mermaid は図のあるページで初めて読み込む
 
-`SPEC.md`「技術」に挙げたとおり、Markdown の変換に marked、図に mermaid を入れる。どちらも依存が少なく、ブラウザだけで動く。
+`SPEC.md`「技術」に挙げたとおり、Markdown の変換に marked、図に mermaid を入れる。marked は依存がない。mermaid は依存が多い（cytoscape、elk、katex、d3 など。lock のパッケージ数が173から290になった）が、下に書くとおり遅延読み込みなので起動と図のないページには効かない。
 
-marked の出力に消毒（sanitize）はかけない。本文は自分のノートで、Access を通った自分しか見ないので、生の HTML を書けるほうが役に立つ。他人の入力を表示する形になったら考え直す。
+marked の出力に消毒（sanitize）はかけない。本文は自分のノートで、Access を通った自分しか見ないので、生の HTML を書けるほうが役に立つ。`javascript:` の URL や `onerror` 属性も書いたまま動く。この前提が崩れる入口は、`/new?body=` と `/append?body=`（リンクを踏むだけで任意の本文が保存され表示される）と、`#要約待ち` を別のツールで処理して外部の内容がリポジトリに入る流れの二つ。前者は段階7で、保存の前に本人の確認を挟む。他人の入力を表示する形になったら、Content-Security-Policy（`script-src 'self' 'unsafe-eval'` ならインラインの script と `javascript:` は止まり、`new Function` のマクロは動く）か消毒を入れる。
 
 mermaid は大きい（縮めても数MB）ので、図のあるページを初めて表示するときに動的 import で読み込む。図のないページの表示と起動には影響しない。
 

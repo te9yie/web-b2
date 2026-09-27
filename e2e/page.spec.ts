@@ -11,9 +11,14 @@ test("見本ページが表示され、リンクをクリックして遷移で�
   await expect(author).toHaveAttribute("href", "/p/%E6%9E%B6%E7%A9%BA%20%E5%A4%AA%E9%83%8E");
 
   // [[2026-01-10-reading-list|読書リスト]] をクリックすると、ページの再読み込みなしで遷移する
+  // （再読み込みが起きると window に付けた印が消える）
+  await page.evaluate(() => {
+    (window as unknown as { __alive: number }).__alive = 1;
+  });
   await page.getByRole("link", { name: "読書リスト" }).click();
   await expect(page).toHaveURL(/\/p\/2026-01-10-reading-list$/);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("読書リスト");
+  expect(await page.evaluate(() => (window as unknown as { __alive?: number }).__alive)).toBe(1);
 
   // 読書リストの「）#読了」は空白の直後ではないのでタグにならない
   await expect(page.locator("a.tag")).toHaveCount(0);
