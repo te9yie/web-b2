@@ -2,10 +2,14 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "web-b2",
+  "main": "src/worker/index.ts",
   "compatibility_date": "2026-09-27",
   "assets": {
     "directory": "./dist",
-    "not_found_handling": "single-page-application"
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    // /api/* はSPAの index.html を返さず、Workerに渡す
+    "run_worker_first": ["/api/*"]
   },
   // Workers Builds のプレビュー（npx wrangler preview）に必要。中身は空でよい。
   "previews": {}
