@@ -2,6 +2,14 @@
 
 新しいものを上に足す。`SPEC.md` を変えるときは先にここに書く。
 
+## 2026-09-27 Workerの設定値はすべてダッシュボードの Secret にする
+
+このリポジトリは公開なので、wrangler 設定に書いた vars は誰でも読める。知識庫のリポジトリ名とAccessのチーム名も出したくないので、トークン以外もすべて Secret にする。wrangler 設定には vars を書かない。
+
+## 2026-09-27 Preview URLs は無効にする
+
+PRごとのプレビューが公開URLに出ると、Accessの外から見える。Workerの設定で無効にする。
+
 ## 2026-09-27 索引とマクロはブラウザで動かす
 
 Cloudflare Workersは `eval()` と `new Function` を許可しておらず（https://developers.cloudflare.com/workers/runtime-apis/web-standards/ 、取得日: 2026-09-27）、無料プランの1リクエストあたりCPU時間は10ms。`settings` のスクリプトの実行と全ページの索引はサーバーではできないので、ブラウザ側に置く。Workerは静的ファイルの配信とGitHub APIの中継だけにする。

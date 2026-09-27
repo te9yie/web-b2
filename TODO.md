@@ -8,13 +8,17 @@ Cloudflare上で、Accessを通ってログインすると今日の日付ペー�
 
 ## 人待ち
 
-AIには権限がなく、人がやる必要があること。終わったらチェックを入れる。
+AIには権限がなく、人がやる必要があること。上から順にやる（Accessで保護する前にトークンを登録しない）。終わったらチェックを入れる。
 
-- [ ] Cloudflareで Workers Builds にこのリポジトリをつなぐ（本番は `main`）
-- [ ] Cloudflare Access のアプリケーションを作り、IdPにGitHubを追加し、自分のアカウントのメールだけ許可するポリシーにする。AUDタグと team domain を `wrangler.toml` の vars（`ACCESS_AUD`、`ACCESS_TEAM_DOMAIN`）に書く
-- [ ] 知識庫リポジトリの Contents 読み書きだけに絞った fine-grained token を作り、`wrangler secret put GITHUB_TOKEN` で登録する
-- [ ] `KB_REPO` を `wrangler.toml` の vars に書く（値は公開されてよいか確認してから。よくなければ secret にする）
-- [ ] 手元で `wrangler login`
+- [ ] Workers Buildsにこのリポジトリをつなぐ。プロジェクト名 `web-b2`、ビルドコマンド `npm run build`、デプロイコマンド `npx wrangler deploy`（既定のまま）、本番ブランチ `main`。段階1が終わるまでビルドは失敗する
+- [ ] Workerの Settings > Domains & Routes で Preview URLs を無効にする。PRごとのプレビューを公開URLに出さない
+- [ ] Zero Trustを有効にしてチーム名を決める（Freeプラン）。team domain は `https://<チーム名>.cloudflareaccess.com`
+- [ ] GitHubの Settings > Developer settings > OAuth Apps > New OAuth app で、Homepage URL に `https://<チーム名>.cloudflareaccess.com`、Authorization callback URL に `https://<チーム名>.cloudflareaccess.com/cdn-cgi/access/callback` を入れて登録し、Client ID と Client secret を控える
+- [ ] Zero Trust > Integrations > Identity providers > Add new で GitHub を選び、App ID に Client ID、Client secret に Client secret を入れて保存し、Finish setup で認可する。Test で自分のアカウントでログインできることを確かめる
+- [ ] Zero Trust > Access > Applications > Add an application > Self-hosted で、ドメインに `web-b2.<サブドメイン>.workers.dev` を入れる。ポリシーは Action: Allow、Include: Emails に自分のGitHubアカウントのメールアドレス。Login methods は GitHub だけにする。保存後、アプリケーションの画面で Application Audience (AUD) Tag を控える
+- [ ] ブラウザで `https://web-b2.<サブドメイン>.workers.dev/` を開き、GitHubのログイン画面が出ることを確かめる（その先はまだエラーでよい）
+- [ ] GitHubの Settings > Developer settings > Personal access tokens > Fine-grained tokens で、Repository access を知識庫リポジトリだけ、Repository permissions を Contents: Read and write だけにしたトークンを作る。期限の日を控える
+- [ ] Workerの Settings > Variables and Secrets で、次の四つを Secret として登録する。`GITHUB_TOKEN`、`KB_REPO`（`owner/repo`）、`ACCESS_TEAM_DOMAIN`、`ACCESS_AUD`。公開リポジトリの wrangler 設定には書かない
 
 ## 段階1 雛形とローカルモード
 
