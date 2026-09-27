@@ -53,6 +53,7 @@ AIには権限がなく、人がやる必要があること。上から順にや
 ## 段階6 GitHub中継
 
 - [ ] Workerの `/api/*` をGitHub Contents API・tarball・compare で実装する。完了条件: GitHub APIをモックした単体テストが通る
+  - `/api/files/<path>` と `/api/pages/<path>` で、ドットで始まる区切り（`.git`、`.github` など）を含むパスは400にする。ローカルモード（`src/server/local.ts`）にも同じ制限を入れ、両方のテストで確かめる。
 - [ ] ブラウザの初回読み込み（tarball）と差分更新（compare）をWorker経由でつなぐ。完了条件: モックで、初回は全件、2回目は差分だけ読むテストが通る
 - [ ] 本番へデプロイして、Accessを通って自分のknowledgeを開けることを確かめる。完了条件: 人が確認する（ここで止まって報告する）
 
