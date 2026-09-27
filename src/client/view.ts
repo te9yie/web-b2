@@ -1,6 +1,6 @@
 // 画面の描画。ページ（/p/<name>）と、一覧・検索結果（/all）
 import type { Kb } from "./kb";
-import { getDraft, openDraft, updateDraft } from "./drafts";
+import { getDraft, isDirty, openDraft, updateDraft } from "./drafts";
 import { type Editor, createEditor } from "./editor";
 import { type Page, type PageMeta, parsePage } from "./page";
 import { escapeHtml, pageUrl, renderMarkdown } from "./render";
@@ -57,8 +57,9 @@ export async function showPage(kb: Kb, scripting: Scripting, name: string, root:
   leavePage();
   let page = await kb.page(name);
   if (stale(seq)) return;
+  // 変わっている下書きだけを優先する。保存できた（基準と同じ）下書きは、控えの中身（updated 済み）のほうが新しい
   const draft = page && getDraft(page.path);
-  if (page && draft) page = parsePage({ path: page.path, content: draft.content, sha: draft.base.sha });
+  if (page && draft && isDirty(draft)) page = parsePage({ path: page.path, content: draft.content, sha: draft.base.sha });
   const exists = (ref: string) => kb.index.resolve(ref) !== null;
 
   if (!page) {

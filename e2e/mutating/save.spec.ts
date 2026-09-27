@@ -33,15 +33,14 @@ test("編集して別のページへ移ると保存され、ファイルが変�
     expect(saved.content).toContain("created: 2026-01-12");
     expect(saved.content).not.toContain("\r\n");
 
-    // 索引にも反映されていて、戻ると保存した内容が出る（下書きではなく控えから）
-    await page.goBack();
+    // 開き直すと保存した内容が出る（下書きではなく控えから。読み込み直しなので下書きはない）
+    await page.goto("/p/2026-01-12-book-a");
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("見本の本A");
     await expect(page.locator(".body")).toContainText("保存の見本で足した行。");
     await expect(page.locator(".dates")).toContainText(`更新 ${todayHere()}`);
-
-    // 読み込み直しても残っている
-    await page.reload();
-    await expect(page.locator(".body")).toContainText("保存の見本で足した行。");
+    // 一覧の並びにも反映されている（更新順の先頭）
+    await page.goto("/all");
+    await expect(page.locator("#pages li").first()).toHaveText("見本の本A");
   } finally {
     await restore();
   }
