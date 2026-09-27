@@ -45,7 +45,10 @@ AIには権限がなく、人がやる必要があること。上から順にや
 - [x] 索引（`name`→ページ、`title`→`name`、リンク先→リンク元）と、リンクの解決（`name`→`title`→まだないページ）を実装する。完了条件: 解決順・バックリンク・2 hop linkの単体テストが通る
   - `src/client/kb-index.ts` の `KbIndex`。`set`/`remove` で1ページずつ差し替えられるので、差分更新でも作り直さない。逆引きはリンクに書かれた文字のまま持ち、`backlinks(ref)` で name と title の両方を引く。2 hop link はリンク先を解決してからまとめるので、name で書いたリンクと title で書いたリンクは同じグループになる。
   - 並びは `byUpdatedDesc`（`updated` の新しい順、同じなら `name` の降順、`updated` なしは最後）にそろえた。一覧と検索でも同じものを使う。
-- [ ] IndexedDBへの保存と、変わったファイルだけ読み直す仕組みを作る。完了条件: 2回目の読み込みで全ファイルを取り直さない単体テストが通る
+- [x] IndexedDBへの保存と、変わったファイルだけ読み直す仕組みを作る。完了条件: 2回目の読み込みで全ファイルを取り直さない単体テストが通る
+  - `src/client/store.ts`（`FileStore`。IndexedDBの `IdbStore` とテスト用の `MemoryStore`）と `src/client/sync.ts`（`sync(store, source)`）。控えには解析結果ではなく `path`・`sha`・中身をそのまま置く。編集に front matter を含む元の文字列が要るのと、解析を直しても取り直さずに済むため。
+  - 取り込み元は `Source`（一覧と1ページの取得）で差し替えられる。いまは `/api/pages` を使う `ApiSource` だけで、段階6で tarball と compare のものを足す。`store.getMeta/setMeta` は最後に見たコミットを置く場所として先に用意した。
+  - `IdbStore` は単体テストでは動かせない（Node.jsにIndexedDBがない）ので、`e2e/sync.spec.ts` で2回目の読み込みに `/api/pages/<path>` のリクエストが出ないことを確かめている。
 - [ ] 1万ページの合成データで計測し、`SPEC.md` の目標に収まることを確かめる。完了条件: 計測結果を `docs/perf.md` に書く
 
 ## 段階3 表示と検索
