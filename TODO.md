@@ -10,21 +10,17 @@ Cloudflare上で、Accessを通ってログインすると今日の日付ペー�
 
 AIには権限がなく、人がやる必要があること。上から順にやる（Accessで保護する前にトークンを登録しない）。終わったらチェックを入れる。
 
-- [ ] Workers Buildsにこのリポジトリをつなぐ。プロジェクト名 `web-b2`、ビルドコマンド `npm run build`、デプロイコマンド `npx wrangler deploy`（既定のまま）、本番ブランチ `main`。段階1が終わるまでビルドは失敗する
-- [ ] Workerの Settings > Domains & Routes で Preview URLs を無効にする。PRごとのプレビューを公開URLに出さない
-- [ ] Zero Trustを有効にしてチーム名を決める（Freeプラン）。team domain は `https://<チーム名>.cloudflareaccess.com`
-- [ ] GitHubの Settings > Developer settings > OAuth Apps > New OAuth app で、Homepage URL に `https://<チーム名>.cloudflareaccess.com`、Authorization callback URL に `https://<チーム名>.cloudflareaccess.com/cdn-cgi/access/callback` を入れて登録し、Client ID と Client secret を控える
-- [ ] Zero Trust > Integrations > Identity providers > Add new で GitHub を選び、App ID に Client ID、Client secret に Client secret を入れて保存し、Finish setup で認可する。Test で自分のアカウントでログインできることを確かめる
-- [ ] Zero Trust > Access > Applications > Add an application > Self-hosted で、ドメインに `web-b2.<サブドメイン>.workers.dev` を入れる。ポリシーは Action: Allow、Include: Emails に自分のGitHubアカウントのメールアドレス。Login methods は GitHub だけにする。保存後、アプリケーションの画面で Application Audience (AUD) Tag を控える
-- [ ] ブラウザで `https://web-b2.<サブドメイン>.workers.dev/` を開き、GitHubのログイン画面が出ることを確かめる（その先はまだエラーでよい）
+- [ ] Workers Buildsにこのリポジトリをつなぐ。プロジェクト名 `web-b2`、ビルドコマンド `npm run build`、デプロイコマンド `npx wrangler deploy`（既定のまま）、プレビュービルドは有効、本番ブランチ `main`。「Protect with Cloudflare Access」をオンにし、ポリシーは Cloudflare account members にする。段階1が終わるまでビルドは失敗する
+- [ ] Workerの Settings > Domains & Routes で、workers.dev とプレビューの両方にAccessがかかっていることを確かめる。かかっていなければ Enable Cloudflare Access を押す
+- [ ] ブラウザのシークレットウィンドウで `https://web-b2.<サブドメイン>.workers.dev/` を開き、Cloudflareのログイン画面が出ることを確かめる（ログインした先はまだエラーでよい）
 - [ ] GitHubの Settings > Developer settings > Personal access tokens > Fine-grained tokens で、Repository access を知識庫リポジトリだけ、Repository permissions を Contents: Read and write だけにしたトークンを作る。期限の日を控える
-- [ ] Workerの Settings > Variables and Secrets で、次の四つを Secret として登録する。`GITHUB_TOKEN`、`KB_REPO`（`owner/repo`）、`ACCESS_TEAM_DOMAIN`、`ACCESS_AUD`。公開リポジトリの wrangler 設定には書かない
+- [ ] Workerの Settings > Variables and Secrets で、`GITHUB_TOKEN` と `KB_REPO`（`owner/repo`）を Secret として登録する。公開リポジトリの wrangler 設定には書かない
 
 ## 段階1 雛形とローカルモード
 
 - [ ] `package.json`、TypeScript、Vite、vitest、Playwright、wrangler を入れ、`npm test`・`npm run e2e`・`npm run dev:local`・`npm run build` のスクリプトを用意する。CI（GitHub Actions）で `npm test` と `npm run e2e` を回す。完了条件: `npm test` と `npm run e2e` がそれぞれ1件以上のテストで通り、Actionsが緑
 - [ ] ローカルモードのサーバー（Node.js）を作る。`KB_ROOT` の下の `KB_DIR` から `.md` を列挙・取得・書き込み・添付ファイル取得する `/api/*` を返す。完了条件: `fixtures/` を `KB_ROOT` にして、一覧・取得・書き込みの単体テストが通る
-- [ ] Workerの雛形を作る。静的ファイルと `/api/*` の振り分け、Access JWT の検証（テストでは検証を差し替えられるようにする）。完了条件: `wrangler dev` で `/` が200、JWTなしの `/api/pages` が401
+- [ ] Workerの雛形を作る。静的ファイルと `/api/*` の振り分け、`ctx.access` がないリクエストを401にする（テストでは差し替えられるようにする）。完了条件: `wrangler dev` で `/` が200、`ctx.access` なしの `/api/pages` が401
 
 ## 段階2 ブラウザ側の索引
 

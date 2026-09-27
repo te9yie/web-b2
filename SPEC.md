@@ -10,7 +10,7 @@ Markdownファイルのリポジトリ（知識庫）を、ブラウザから閲
 
 ## 構成
 
-一つのCloudflare Workerで、静的ファイル（SPA）と `/api/*` を配信する。前段にCloudflare Accessを置き、Workerは `Cf-Access-Jwt-Assertion` ヘッダーのJWTを検証する。検証に失敗したリクエストはすべて401にする。
+一つのCloudflare Workerで、静的ファイル（SPA）と `/api/*` を配信する。WorkerにCloudflare Accessを直接かけ（Workers の one-click Access）、workers.dev とプレビューの両方を保護する。許可するのはCloudflareアカウントのメンバーだけ。Accessを通ったリクエストには `ctx.access` が付くので、Workerは自分でJWTを検証せず、`ctx.access` がないリクエストを401にする。
 
 ファイルはGitHubのリポジトリにあり、アプリはそれを直接読み書きする。Workerは、そのリポジトリの Contents に限定した fine-grained token を持ち、GitHub APIへの中継だけを行う。Markdownの解析、索引、検索、マクロの展開、表示はすべてブラウザで行う（Workersは1リクエストのCPU時間が短く、`eval` と `new Function` が使えない）。
 
@@ -26,8 +26,6 @@ Markdownファイルのリポジトリ（知識庫）を、ブラウザから閲
 | `KB_BRANCH` | 読み書きするブランチ。既定 `main` |
 | `KB_DIR` | ページを読み書きするディレクトリ。既定 `notes` |
 | `GITHUB_TOKEN` | fine-grained token（secret） |
-| `ACCESS_TEAM_DOMAIN` | `https://<team>.cloudflareaccess.com` |
-| `ACCESS_AUD` | AccessアプリケーションのAUDタグ |
 | `KB_ROOT` | ローカルモードで読み書きするディレクトリ |
 
 ## ページのモデル
