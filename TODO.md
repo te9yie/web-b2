@@ -12,8 +12,8 @@ AIには権限がなく、人がやる必要があること。上から順にや
 
 - [x] Workers Buildsにこのリポジトリをつなぐ。プロジェクト名 `web-b2`、ビルドコマンド `npm run build`、デプロイコマンド `npx wrangler deploy`（既定のまま）、プレビュービルドは有効、本番ブランチ `main`。「Protect with Cloudflare Access」をオンにし、ポリシーは Cloudflare account members にする。段階1が終わるまでビルドは失敗する
 - [x] Workerの「Access」タブで、Worker Access が「すべてのトラフィック」（本番とプレビュー）、ポリシーが Cloudflare account members の許可になっていることを確かめる
-- [ ] 段階1でデプロイが成功したら、「ドメイン」タブの Worker URL で、プロダクション（`web-b2.<サブドメイン>.workers.dev`）のスイッチをオンにする。PRごとのプレビューを見たければプレビューもオンにする（どちらもAccessの対象）
-- [ ] シークレットウィンドウで `https://web-b2.<サブドメイン>.workers.dev/` を開き、Cloudflareのログイン画面が出ることを確かめる。出なければトークンを登録せずに止める
+- [x] 段階1でデプロイが成功したら、「ドメイン」タブの Worker URL で、プロダクション（`web-b2.<サブドメイン>.workers.dev`）のスイッチをオンにする。PRごとのプレビューを見たければプレビューもオンにする（どちらもAccessの対象）
+- [x] シークレットウィンドウで `https://web-b2.<サブドメイン>.workers.dev/` を開き、Cloudflareのログイン画面が出ることを確かめる。出なければトークンを登録せずに止める
 - [ ] GitHubの Settings > Developer settings > Personal access tokens > Fine-grained tokens で、Repository access を知識庫リポジトリだけ、Repository permissions を Contents: Read and write だけにしたトークンを作る。期限の日を控える
 - [ ] Workerの Settings > Variables and Secrets で、`GITHUB_TOKEN` と `KB_REPO`（`owner/repo`）を Secret として登録する。公開リポジトリの wrangler 設定には書かない
 
