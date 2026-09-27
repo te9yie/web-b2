@@ -1,6 +1,7 @@
 // 画面の描画。ページ（/p/<name>）と、いまは仮の一覧（/）
 import type { Kb } from "./kb";
 import { byUpdatedDesc } from "./kb-index";
+import type { PageMeta } from "./page";
 import { escapeHtml, pageUrl, renderMarkdown } from "./render";
 
 export { escapeHtml };
@@ -40,9 +41,10 @@ export async function showPage(kb: Kb, name: string, root: HTMLElement, seq: num
   const exists = (ref: string) => kb.index.resolve(ref) !== null;
 
   if (!page) {
-    // まだないページ。見出しだけ。バックリンクは次のタスクで足す
+    // まだないページ。見出しとバックリンクだけ
     document.title = `${name} - web-b2`;
     root.innerHTML = `<article class="page missing"><h1>${escapeHtml(name)}</h1><p class="note">まだないページ</p></article>`;
+    await appendRelated(kb, name, root, seq);
     return;
   }
 
@@ -62,7 +64,41 @@ export async function showPage(kb: Kb, name: string, root: HTMLElement, seq: num
   if (h1) h1.insertAdjacentElement("afterend", dates);
   else root.querySelector("article")!.prepend(dates);
 
+  // 本文を先に見せてから、逆引き（初回は構築を待つ）と図
+  await appendRelated(kb, page.name, root, seq);
   await drawMermaid(root, seq);
+}
+
+function pageItem(p: PageMeta): string {
+  return `<li><a href="${pageUrl(p.name)}" class="wikilink">${escapeHtml(p.title)}</a></li>`;
+}
+
+// ページの末尾に「このページへのリンク」（バックリンク）と「2 hop link」を足す（SPEC.md「リンクの解決」）。
+// バックリンクはないときも見出しを出す。2 hop link はあるときだけ、リンク先ごとにまとめる
+async function appendRelated(kb: Kb, name: string, root: HTMLElement, seq: number): Promise<void> {
+  const [backlinks, hops] = await Promise.all([kb.backlinks(name), kb.twoHop(name)]);
+  if (stale(seq)) return;
+  const article = root.querySelector("article");
+  if (!article) return;
+
+  const back = document.createElement("section");
+  back.className = "backlinks";
+  back.innerHTML = `<h2>このページへのリンク</h2>${
+    backlinks.length === 0 ? `<p class="note">なし</p>` : `<ul>${backlinks.map(pageItem).join("")}</ul>`
+  }`;
+  article.append(back);
+
+  if (hops.length === 0) return;
+  const hop = document.createElement("section");
+  hop.className = "two-hop";
+  hop.innerHTML = `<h2>2 hop link</h2>${hops
+    .map((h) => {
+      const label = h.target.page ? h.target.page.title : h.target.name;
+      const cls = h.target.page ? "wikilink" : "wikilink missing";
+      return `<div class="hop"><h3><a href="${pageUrl(h.target.name)}" class="${cls}">${escapeHtml(label)}</a></h3><ul>${h.pages.map(pageItem).join("")}</ul></div>`;
+    })
+    .join("")}`;
+  article.append(hop);
 }
 
 export function showList(kb: Kb, root: HTMLElement, note: string): void {
