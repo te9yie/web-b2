@@ -2,10 +2,11 @@
 // タブを閉じるときにまとめて1コミットにする。保存の前に front matter の updated をその日の日付にする。
 // 保存できたら Kb.put で控えと索引に反映し、下書きの基準を新しい sha にする。失敗したら下書きを残して次の機会に試す
 
-import { type Draft, dirtyDrafts, getDraft, onDraftChange, rebase } from "./drafts";
+import { type Draft, dirtyDrafts, getDraft, markConflict, onDraftChange, rebase } from "./drafts";
 import type { Kb } from "./kb";
 import { parsePage, splitFrontMatter } from "./page";
-import type { Source, WriteOptions } from "./source";
+import { ConflictError, type Source, type WriteOptions } from "./source";
+import type { StoredFile } from "./store";
 
 export const SAVE_DELAY = 30000;
 
@@ -41,6 +42,8 @@ export interface SaveResult {
   path: string;
   ok: boolean;
   error?: string;
+  // 競合（409）。相手の内容。消えていれば null
+  conflict?: StoredFile | null;
 }
 
 export class Saver {
@@ -112,6 +115,19 @@ export class Saver {
       return result;
     } catch (e) {
       const error = e instanceof Error ? e.message : String(e);
+      if (e instanceof ConflictError) {
+        // 下書きに相手の内容を付けて自動の再送から外し、控えと索引は相手の内容にする（消えていれば控えからも消す）
+        markConflict(path, e.current ?? { path, sha: null, content: "" });
+        try {
+          if (e.current) await this.kb.put(e.current);
+          else await this.kb.remove(path);
+        } catch (err) {
+          console.warn(`相手の内容を控えに反映できない: ${err instanceof Error ? err.message : String(err)}`);
+        }
+        const result = { path, ok: false, error, conflict: e.current };
+        this.onResult(result);
+        return result;
+      }
       this.lastError = error;
       const result = { path, ok: false, error };
       this.onResult(result);

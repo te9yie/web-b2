@@ -20,28 +20,45 @@ export interface Source {
 
 export class NotFoundError extends Error {}
 
+// 書き込みの競合（409）。current は相手（いまのファイル）の内容。消えていれば null
+export class ConflictError extends Error {
+  constructor(
+    message: string,
+    readonly current: StoredFile | null,
+  ) {
+    super(message);
+  }
+}
+
 // パスの区切りごとにURLエンコードする。SPEC.md「API」の <path> の渡し方
 export function encodePath(path: string): string {
   return path.split("/").map(encodeURIComponent).join("/");
 }
 
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null;
+}
+
+function asFile(v: unknown): StoredFile | null {
+  if (!isRecord(v) || typeof v.path !== "string" || typeof v.sha !== "string" || typeof v.content !== "string") return null;
+  return { path: v.path, sha: v.sha, content: v.content };
+}
+
 async function readJson(res: Response): Promise<unknown> {
   if (!res.ok) {
     let message = `${res.status}`;
+    let body: unknown = null;
     try {
-      const body = (await res.json()) as { error?: string };
-      if (body.error) message = `${res.status} ${body.error}`;
+      body = await res.json();
+      if (isRecord(body) && typeof body.error === "string") message = `${res.status} ${body.error}`;
     } catch {
       // 本文がJSONでなければ状態コードだけ
     }
     if (res.status === 404) throw new NotFoundError(`APIの応答が異常: ${message}`);
+    if (res.status === 409) throw new ConflictError(message, isRecord(body) ? asFile(body.current) : null);
     throw new Error(`APIの応答が異常: ${message}`);
   }
   return res.json();
-}
-
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null;
 }
 
 export class ApiSource implements Source {

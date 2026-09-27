@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { clearDraft, dirtyDrafts, getDraft, openDraft, updateDraft } from "./drafts";
+import { clearDraft, dirtyDrafts, getDraft, openDraft, resolveConflict, updateDraft } from "./drafts";
 import { Kb } from "./kb";
 import { Saver, withUpdated } from "./saver";
-import type { Source } from "./source";
+import { ConflictError, type Source } from "./source";
 import { MemoryStore, type StoredFile } from "./store";
 
 describe("withUpdated", () => {
@@ -47,6 +47,10 @@ class FakeSource implements Source {
   }
   async write(path: string, content: string, sha: string | null, message: string, options: { keepalive?: boolean } = {}) {
     if (this.fail) throw new Error(this.fail);
+    // ローカルモードと同じ競合の判定
+    const current = this.files.get(path);
+    if (current && sha !== current.sha) throw new ConflictError("409 競合", { ...current });
+    if (!current && sha !== null) throw new ConflictError("409 競合", null);
     this.writes.push({ path, content, sha, message, keepalive: options.keepalive });
     const next = `sha${this.writes.length}`;
     this.files.set(path, { path, sha: next, content });
@@ -132,6 +136,66 @@ describe("Saver", () => {
       ["sha1", true],
     ]);
     expect(dirtyDrafts()).toEqual([]);
+  });
+
+  it("裏で変わったファイルへの保存は拒まれ、下書き（自分）と相手の内容の両方が残り、自動では送り直さない", async () => {
+    const { source, kb, saver, results } = await setup();
+    // 別のツールが同じファイルを変えた
+    const theirs = ORIGINAL.replace("本文", "相手が書いた");
+    source.files.set(PATH, { path: PATH, sha: "theirs1", content: theirs });
+    updateDraft(PATH, ORIGINAL.replace("本文", "自分が書いた"));
+    const [result] = await saver.flush();
+    expect(result.ok).toBe(false);
+    expect(result.conflict).toEqual({ path: PATH, sha: "theirs1", content: theirs });
+    expect(source.writes).toEqual([]);
+    // 自分の下書きは残り、相手の内容が付く。控えと索引は相手の内容になる
+    const draft = getDraft(PATH)!;
+    expect(draft.content).toContain("自分が書いた");
+    expect(draft.conflict).toEqual({ path: PATH, sha: "theirs1", content: theirs });
+    expect((await kb.content(PATH))?.content).toBe(theirs);
+    expect(kb.index.get("a")?.sha).toBe("theirs1");
+    // タイマーでも flush でも送り直さない
+    updateDraft(PATH, ORIGINAL.replace("本文", "自分が書いた2"));
+    await vi.advanceTimersByTimeAsync(5000);
+    await saver.flush();
+    expect(source.writes).toEqual([]);
+    expect(results.filter((r) => r.ok)).toEqual([]);
+  });
+
+  it("競合を「自分で上書き」にすると相手の sha で送り、「そろえる」にすると下書きが消える", async () => {
+    const { source, saver } = await setup();
+    source.files.set(PATH, { path: PATH, sha: "theirs1", content: ORIGINAL.replace("本文", "相手") });
+    updateDraft(PATH, ORIGINAL.replace("本文", "自分"));
+    await saver.flush();
+    expect(getDraft(PATH)?.conflict).toBeDefined();
+
+    resolveConflict(PATH, "mine");
+    await saver.flush();
+    expect(source.writes.length).toBe(1);
+    expect(source.writes[0].sha).toBe("theirs1");
+    expect(source.writes[0].content).toContain("自分");
+    expect(getDraft(PATH)?.conflict).toBeUndefined();
+    expect(dirtyDrafts()).toEqual([]);
+
+    // もう一度競合させて、今度はそろえる
+    source.files.set(PATH, { path: PATH, sha: "theirs2", content: ORIGINAL.replace("本文", "相手2") });
+    updateDraft(PATH, ORIGINAL.replace("本文", "自分2"));
+    await saver.flush();
+    expect(getDraft(PATH)?.conflict?.sha).toBe("theirs2");
+    resolveConflict(PATH, "theirs");
+    expect(getDraft(PATH)).toBeUndefined();
+    expect(source.writes.length).toBe(1);
+  });
+
+  it("相手が消していたら、控えからも消え、下書きには消えた印が付く", async () => {
+    const { source, kb, saver } = await setup();
+    source.files.delete(PATH);
+    updateDraft(PATH, `${ORIGINAL}x\n`);
+    const [result] = await saver.flush();
+    expect(result.conflict).toBeNull();
+    expect(getDraft(PATH)?.conflict).toEqual({ path: PATH, sha: null, content: "" });
+    expect(await kb.content(PATH)).toBeUndefined();
+    expect(kb.index.get("a")).toBeUndefined();
   });
 
   it("書けたあとに控えへの反映が失敗しても、基準は新しい sha になる", async () => {

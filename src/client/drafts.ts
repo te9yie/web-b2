@@ -17,6 +17,8 @@ export interface Draft {
   base: DraftBase;
   // 今の中身（LF）
   content: string;
+  // 保存が 409 になったときの相手（いまのファイル）の内容。消えていれば path だけの空。解決するまで自動では送り直さない
+  conflict?: { path: string; sha: string | null; content: string };
 }
 
 const drafts = new Map<string, Draft>();
@@ -90,8 +92,27 @@ export function clearDraft(path: string): void {
   for (const [name, p] of newPages) if (p === path) newPages.delete(name);
 }
 
+// 自動で保存する対象。変わっていて、競合していないもの
 export function dirtyDrafts(): [string, Draft][] {
-  return [...drafts].filter(([, d]) => isDirty(d));
+  return [...drafts].filter(([, d]) => isDirty(d) && !d.conflict);
+}
+
+export function markConflict(path: string, current: { path: string; sha: string | null; content: string }): void {
+  const draft = drafts.get(path);
+  if (draft) draft.conflict = current;
+}
+
+// 競合の解決。mine は自分の下書きで上書き（基準の sha を相手のものにして、次の保存で送る）。theirs は下書きを捨てる
+export function resolveConflict(path: string, choice: "mine" | "theirs"): void {
+  const draft = drafts.get(path);
+  if (!draft?.conflict) return;
+  if (choice === "theirs") {
+    clearDraft(path);
+    return;
+  }
+  draft.base = { path, sha: draft.conflict.sha, content: draft.base.content };
+  delete draft.conflict;
+  for (const l of listeners) l(path);
 }
 
 export function onDraftChange(listener: (path: string) => void): () => void {

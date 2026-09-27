@@ -5,12 +5,25 @@ import { type Route, startRouter } from "./router";
 import { search } from "./search";
 import { firstLink } from "./md";
 import { Scripting } from "./scripting";
-import { dropClean } from "./drafts";
+import { dropClean, resolveConflict } from "./drafts";
 import { SAVE_DELAY, Saver } from "./saver";
 import { DEFAULT_SETTINGS, type Settings } from "./settings";
 import { ApiSource } from "./source";
 import { type FileStore, IdbStore, MemoryStore } from "./store";
-import { beginRender, currentEditingPath, escapeHtml, isEditing, leavePage, markSynced, setPageDir, showAll, showPage, stale, statusText } from "./view";
+import {
+  beginRender,
+  currentEditingPath,
+  escapeHtml,
+  isEditing,
+  leavePage,
+  markSynced,
+  setConflictResolver,
+  setPageDir,
+  showAll,
+  showPage,
+  stale,
+  statusText,
+} from "./view";
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
 app.innerHTML = `<header id="top"><nav id="links"></nav><input id="q" type="search" placeholder="検索" autocomplete="off" aria-label="検索"><span id="save-note"></span></header><main id="view"><p id="status">読み込み中</p></main>`;
@@ -94,9 +107,31 @@ async function start(): Promise<void> {
   setPageDir(() => source.dir());
   // 保存。結果はヘッダーの右端に出す（失敗したときだけ文が残る）
   const saveNote = document.querySelector<HTMLElement>("#save-note")!;
+  // 表示中のページの path（競合の表示に使う）
+  const currentPagePath = (): string | null => {
+    const route = router.current();
+    return route.kind === "page" ? (kb.index.resolve(route.name)?.[1].path ?? null) : null;
+  };
   const saver = new Saver(kb, source, today, SAVE_DELAY, (result) => {
+    if (result.conflict !== undefined) {
+      saveNote.textContent = "別の場所で変わっている";
+      saveNote.title = "そのページを開くと、相手の内容と選択肢が出る";
+      // いま見ているページなら、競合の表示を出すために描き直す（編集中でも。下書きは残る）
+      if (currentPagePath() === result.path) render(router.current());
+      return;
+    }
     saveNote.textContent = result.ok ? "" : `保存できない: ${result.error}`;
     saveNote.title = result.ok ? "" : "下書きは残っている。次の編集かページ移動でもう一度送る";
+  });
+  // 競合の解決。上書きなら基準を相手の sha にして送り、そろえるなら下書きを捨てる。どちらも描き直す
+  setConflictResolver((path, choice) => {
+    resolveConflict(path, choice);
+    saveNote.textContent = "";
+    const after = () => {
+      if (currentPagePath() === path) render(router.current());
+    };
+    if (choice === "mine") void saver.flush().then(after);
+    else after();
   });
   // タブを閉じるときに保存する。keepalive の fetch はページが消えても送り終える。
   // 裏に回るとき（タブの切り替え）はページが消えないので普通の fetch で保存する（DECISIONS.md 2026-09-27「保存時の updated」）
