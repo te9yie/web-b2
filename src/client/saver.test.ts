@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { clearDraft, dirtyDrafts, getDraft, openDraft, resolveConflict, updateDraft } from "./drafts";
+import { clearDraft, dirtyDrafts, getDraft, openDraft, openNewDraft, resolveConflict, updateDraft } from "./drafts";
 import { Kb } from "./kb";
 import { Saver, withUpdated } from "./saver";
 import { ConflictError, type Source } from "./source";
@@ -243,5 +243,59 @@ describe("Saver", () => {
     expect(source.writes[0].sha).toBe("sha0");
     expect(saver.lastError).toBeNull();
     expect(dirtyDrafts()).toEqual([]);
+  });
+});
+
+describe("Saver.saveNow（/new と /append の保存）", () => {
+  const OTHER = "notes/b.md";
+  afterEach(() => {
+    clearDraft(PATH);
+    clearDraft(OTHER);
+  });
+
+  it("その path だけを送り、ほかの変わっている下書きは送らない。onResult は呼ばない", async () => {
+    const { source, kb, saver, results } = await setup();
+    const other = openNewDraft("B", OTHER, "---\n---\n# B\n");
+    updateDraft(OTHER, `${other.content}書きかけ\n`);
+    updateDraft(PATH, `${ORIGINAL}\n追記\n`);
+    const result = await saver.saveNow(PATH);
+    expect(result).toEqual({ path: PATH, ok: true });
+    expect(source.writes.map((w) => w.path)).toEqual([PATH]);
+    expect(source.writes[0].message).toBe("web: A");
+    expect(source.writes[0].content).toBe("---\ncreated: 2026-01-01\nupdated: 2026-09-27\n---\n# A\n\n本文\n\n追記\n");
+    expect((await kb.content(PATH))?.content).toContain("追記");
+    expect(results).toEqual([]);
+    expect(dirtyDrafts().map(([p]) => p)).toEqual([OTHER]);
+    // flush は今までどおり onResult を呼ぶ
+    await saver.flush();
+    expect(results).toEqual([{ path: OTHER, ok: true }]);
+  });
+
+  it("新しいページの下書きは content を渡すと最初から変わっている扱いになり、sha null で送る", async () => {
+    const { source, saver } = await setup();
+    const draft = openNewDraft("取り込み", OTHER, "", "---\ncreated: 2026-09-27\nupdated: 2026-09-27\n---\n\n# 取り込み\n\n");
+    expect(draft.base.content).toBe("");
+    expect(dirtyDrafts().map(([p]) => p)).toEqual([OTHER]);
+    // 同じ name の下書きがあれば、それを返す
+    expect(openNewDraft("取り込み", "notes/c.md", "", "x")).toBe(draft);
+    await saver.saveNow(OTHER);
+    expect(source.writes[0]).toMatchObject({ path: OTHER, sha: null, message: "web: 取り込み" });
+  });
+
+  it("下書きがなければ何も送らず、失敗として返す", async () => {
+    const { source, saver } = await setup();
+    expect(await saver.saveNow("notes/none.md")).toEqual({ path: "notes/none.md", ok: false, error: "下書きがない" });
+    expect(source.writes).toEqual([]);
+  });
+
+  it("409 なら conflict を返し、下書きに相手の内容を付ける", async () => {
+    const { source, saver, results } = await setup();
+    source.files.set(PATH, { path: PATH, sha: "shaX", content: "相手\n" });
+    updateDraft(PATH, `${ORIGINAL}\n追記\n`);
+    const result = await saver.saveNow(PATH);
+    expect(result.ok).toBe(false);
+    expect(result.conflict).toEqual({ path: PATH, sha: "shaX", content: "相手\n" });
+    expect(getDraft(PATH)?.conflict?.sha).toBe("shaX");
+    expect(results).toEqual([]);
   });
 });

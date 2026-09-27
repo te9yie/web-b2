@@ -112,7 +112,9 @@ AIには権限がなく、人がやる必要があること。上から順にや
 
 ## 段階7 取り込み
 
-- [ ] `/new?title=&body=` と `/append?page=&body=`。完了条件: e2eで両方のURLからページが作られる・追記される
+- [x] `/new?title=&body=` と `/append?page=&body=`。完了条件: e2eで両方のURLからページが作られる・追記される
+  - `src/client/capture.ts`（行き先の判定 `planCapture`、追記の `appendBody`、注意の `captureWarnings`、確認画面 `showCapture`）。確認画面で「保存」を押すまで書かず、差分の同期（`whenSynced`）を待ってから押せる。保存は `Saver.saveNow` で、失敗したら下書きを戻す。`/new` の title が既存のページなら追記にする（`DECISIONS.md`）。
+  - URL の長さの上限と、Access のログインを挟んだときにクエリが残るかは未確認。次の README のタスクで、人が長い本文のブックマークレットで確かめる。
   - 保存の前に本人の確認（内容を見せて「保存」を押す）を挟む。リンクを踏むだけで任意の本文が保存されて表示されると、消毒をしていない表示（`DECISIONS.md` 2026-09-27「marked と mermaid を入れる」）と合わせて、細工したリンクから知識庫を読み書きされる。
 - [ ] `README.md` にブックマークレットの例と、Cloudflare側の設定手順を書く。完了条件: 人が読んで手順どおりに設定できる
 

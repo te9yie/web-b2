@@ -99,10 +99,23 @@ export function insertConflict(root: HTMLElement, path: string): void {
 }
 
 // 起動後の差分の同期が一度済んだか。済むまでは索引が古い（初回は空）ので、「まだないページ」に「編集」を出さない
-// （既存のページを新しいページとして作ってしまわないように）
+// （既存のページを新しいページとして作ってしまわないように）。/new と /append の「保存」も whenSynced() で待つ
 let synced = false;
+export type SyncState = { ok: true } | { ok: false; error: string };
+let settleSync: (state: SyncState) => void = () => undefined;
+// 一度決まったら変わらない
+const syncState = new Promise<SyncState>((resolve) => {
+  settleSync = resolve;
+});
 export function markSynced(): void {
   synced = true;
+  settleSync({ ok: true });
+}
+export function markSyncFailed(error: string): void {
+  settleSync({ ok: false, error });
+}
+export function whenSynced(): Promise<SyncState> {
+  return syncState;
 }
 
 function timestampName(now: Date): string {
@@ -111,12 +124,26 @@ function timestampName(now: Date): string {
 }
 
 // まだないページ name から書き始める新しいページの path と初期の中身（SPEC.md「新しいページ」）。
-// name が日付ならファイル名も日付、それ以外は作成時刻。1行目は # name
-export function newPageFile(name: string, dir: string, now: Date): { path: string; content: string } {
+// name が日付ならファイル名も日付、それ以外は作成時刻。1行目は # name。
+// name が null（title のない /new）なら作成時刻のファイル名で、見出しを付けない
+export function newPageFile(name: string | null, dir: string, now: Date): { path: string; content: string } {
   const date = today(now);
-  const file = /^\d{4}-\d{2}-\d{2}$/.test(name) ? name : timestampName(now);
+  const file = name !== null && /^\d{4}-\d{2}-\d{2}$/.test(name) ? name : timestampName(now);
   const path = dir === "" ? `${file}.md` : `${dir}/${file}.md`;
-  return { path, content: `---\ncreated: ${date}\nupdated: ${date}\n---\n\n# ${name}\n\n` };
+  const heading = name === null ? "" : `# ${name}\n\n`;
+  return { path, content: `---\ncreated: ${date}\nupdated: ${date}\n---\n\n${heading}` };
+}
+
+// newPageFile の path を決める。同じ秒に別の名前から作った下書きや既にあるファイルと重なれば、1秒ずつ進める
+export function allocateNewPageFile(kb: Kb, name: string | null, dir: string, now: Date): { path: string; content: string } {
+  const at = new Date(now);
+  let file = newPageFile(name, dir, at);
+  const taken = (p: string) => getDraft(p) !== undefined || [...kb.index.pages.values()].some((m) => m.path === p);
+  for (let i = 0; i < 60 && taken(file.path); i++) {
+    at.setSeconds(at.getSeconds() + 1);
+    file = newPageFile(name, dir, at);
+  }
+  return file;
 }
 
 export async function showPage(kb: Kb, scripting: Scripting, name: string, root: HTMLElement, seq: number): Promise<void> {
@@ -249,15 +276,7 @@ async function startNewPage(kb: Kb, scripting: Scripting, name: string, root: HT
     return;
   }
   if (stale(seq)) return;
-  // 同じ秒に別の名前から作った下書きや、既にあるファイルと path が重ならないよう、重なれば1秒進める
-  const now = new Date();
-  let file = newPageFile(name, dir, now);
-  const taken = (p: string) => getDraft(p) !== undefined || [...kb.index.pages.values()].some((m) => m.path === p);
-  for (let i = 0; i < 60 && taken(file.path); i++) {
-    now.setSeconds(now.getSeconds() + 1);
-    file = newPageFile(name, dir, now);
-  }
-  const { path, content } = file;
+  const { path, content } = allocateNewPageFile(kb, name, dir, new Date());
   const draft = openNewDraft(name, path, content);
   await renderPage(kb, scripting, name, root, seq);
   if (stale(seq)) return;
