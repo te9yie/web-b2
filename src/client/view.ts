@@ -1,6 +1,8 @@
 // 画面の描画。ページ（/p/<name>）と、一覧・検索結果（/all）
 import type { Kb } from "./kb";
-import type { PageMeta } from "./page";
+import { getDraft, openDraft, updateDraft } from "./drafts";
+import { type Editor, createEditor } from "./editor";
+import { type Page, type PageMeta, parsePage } from "./page";
 import { escapeHtml, pageUrl, renderMarkdown } from "./render";
 import type { Scripting } from "./scripting";
 import type { SearchResult } from "./search";
@@ -36,10 +38,27 @@ async function drawMermaid(root: HTMLElement, seq: number): Promise<void> {
   }
 }
 
-// ページの表示。本文はマクロを展開してから HTML にする（ファイルは書いたまま）
+// 表示中のエディタ。ページを離れるときに破棄する
+let editor: Editor | null = null;
+
+export function isEditing(): boolean {
+  return editor !== null;
+}
+
+// ページを離れる（別のルートを描く）ときに呼ぶ。エディタを破棄する。保存の起点は次のタスクでここに足す
+export function leavePage(): void {
+  editor?.destroy();
+  editor = null;
+}
+
+// ページの表示。本文はマクロを展開してから HTML にする（ファイルは書いたまま）。
+// 下書きがあれば、ファイルの中身の代わりに下書きを解析して表示する（sha は基準のもの）
 export async function showPage(kb: Kb, scripting: Scripting, name: string, root: HTMLElement, seq: number): Promise<void> {
-  const page = await kb.page(name);
+  leavePage();
+  let page = await kb.page(name);
   if (stale(seq)) return;
+  const draft = page && getDraft(page.path);
+  if (page && draft) page = parsePage({ path: page.path, content: draft.content, sha: draft.base.sha });
   const exists = (ref: string) => kb.index.resolve(ref) !== null;
 
   if (!page) {
@@ -62,7 +81,16 @@ export async function showPage(kb: Kb, scripting: Scripting, name: string, root:
       ? `<p class="script-error">script.js を実行できない: ${escapeHtml(scripting.error)}</p>`
       : "";
   const html = renderMarkdown(body, { pagePath: page.path, exists });
-  root.innerHTML = `<article class="page">${scriptError}${heading}<div class="body">${html}</div></article>`;
+  // 先頭はスクリプトのエラー、次に「編集」の道具、見出し、本文の順
+  root.innerHTML = `<article class="page">${scriptError}<div class="tools"></div>${heading}<div class="body">${html}</div></article>`;
+
+  // 「編集」でその場をエディタにし、「表示」で下書きを解析して描き直す（SPEC.md「編集と保存」）
+  const editButton = document.createElement("button");
+  editButton.type = "button";
+  editButton.className = "edit";
+  editButton.textContent = "編集";
+  editButton.addEventListener("click", () => void startEdit(kb, scripting, page, root, seq));
+  root.querySelector(".tools")!.append(editButton);
 
   // 作成日・更新日は見出しの直後に置く。見出しがなければ本文の前
   const dates = document.createElement("p");
@@ -76,6 +104,37 @@ export async function showPage(kb: Kb, scripting: Scripting, name: string, root:
 
   // 本文を先に見せてから、逆引き（初回は構築を待つ）と図。触る場所が別なので並べて進める
   await Promise.all([appendRelated(kb, page.name, root, seq), drawMermaid(root, seq)]);
+}
+
+// 本文の場所（H1 と日付を含む）をエディタに差し替える。中身はファイルそのもの（front matter を含む）か、あれば下書き
+async function startEdit(kb: Kb, scripting: Scripting, page: Page, root: HTMLElement, seq: number): Promise<void> {
+  const file = await kb.content(page.path);
+  if (stale(seq) || !file) return;
+  const draft = openDraft(file);
+  const body = root.querySelector<HTMLElement>(".body");
+  const tools = root.querySelector<HTMLElement>(".tools");
+  if (!body || !tools) return;
+
+  const host = document.createElement("div");
+  host.className = "editor";
+  body.replaceWith(host);
+  tools.innerHTML = "";
+  const done = document.createElement("button");
+  done.type = "button";
+  done.className = "view";
+  done.textContent = "表示";
+  // 描き直す。下書きがあればそれが表示に反映される。エディタの読み込み中に押しても効く
+  done.addEventListener("click", () => void showPage(kb, scripting, page.name, root, beginRender()));
+  tools.append(done);
+
+  const view = await createEditor(host, draft.content, (value) => updateDraft(page.path, value));
+  // 読み込みのあいだに別のページへ移っていたら、いま表示中のエディタには触らずに捨てる
+  if (stale(seq)) {
+    view.destroy();
+    return;
+  }
+  editor = view;
+  view.focus();
 }
 
 // 一覧の1項目。同じ title のページを見分けられるように、name を title 属性に入れる

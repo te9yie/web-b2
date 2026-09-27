@@ -241,6 +241,11 @@ export class Kb {
     return parseSettings(await this.page(SETTINGS_NAME));
   }
 
+  // ファイルの中身そのもの（front matter を含む）。編集に使う
+  content(path: string): Promise<StoredFile | undefined> {
+    return this.store.get(path);
+  }
+
   // 本文つきのページ。ref は name でも title でも [[ ]] 付きでもよい。表示のときに、そのページの分だけ控えから読む
   async page(ref: string): Promise<Page | null> {
     const found = this.index.resolve(ref);
