@@ -19,6 +19,16 @@ describe("withUpdated", () => {
   it("front matter のないページには何もしない", () => {
     expect(withUpdated("# a\n\n---\nx\n---\n", "2026-02-03")).toBe("# a\n\n---\nx\n---\n");
   });
+
+  it("空の front matter と CRLF でも形を壊さない", () => {
+    expect(withUpdated("---\n---\n# a\n", "2026-02-03")).toBe("---\nupdated: 2026-02-03\n---\n# a\n");
+    expect(withUpdated("---\r\ncreated: 2026-01-01\r\nupdated: 2026-01-02\r\n---\r\n# a\r\n", "2026-02-03")).toBe(
+      "---\r\ncreated: 2026-01-01\r\nupdated: 2026-02-03\r\n---\r\n# a\r\n",
+    );
+    expect(withUpdated("---\r\ncreated: 2026-01-01\r\n---\r\n# a\r\n", "2026-02-03")).toBe(
+      "---\r\ncreated: 2026-01-01\r\nupdated: 2026-02-03\r\n---\r\n# a\r\n",
+    );
+  });
 });
 
 // 書き込みを記録する取り込み元
@@ -106,16 +116,33 @@ describe("Saver", () => {
     };
     updateDraft(PATH, `${ORIGINAL}1\n`);
     const first = saver.flush();
+    // 最初の保存が中身を読んで送り始めるまで待ってから、続きを編集する
+    await vi.advanceTimersByTimeAsync(0);
     updateDraft(PATH, `${ORIGINAL}1\n2\n`);
     const second = saver.flush();
+    const third = saver.flush();
     release();
-    await first;
-    await second;
+    await Promise.all([first, second, third]);
+    // 進行中に重なった flush は一つずつ連なり、同じ内容を二重には送らない
     expect(source.writes.map((w) => [w.sha, w.content.endsWith("1\n2\n")])).toEqual([
       ["sha0", false],
       ["sha1", true],
     ]);
     expect(dirtyDrafts()).toEqual([]);
+  });
+
+  it("書けたあとに控えへの反映が失敗しても、基準は新しい sha になる", async () => {
+    const { source, saver, kb } = await setup();
+    const put = kb.put.bind(kb);
+    kb.put = async () => {
+      throw new Error("控えに書けない");
+    };
+    updateDraft(PATH, `${ORIGINAL}x\n`);
+    const [result] = await saver.flush();
+    expect(result.ok).toBe(true);
+    expect(getDraft(PATH)?.base.sha).toBe("sha1");
+    expect(source.writes.length).toBe(1);
+    kb.put = put;
   });
 
   it("失敗したら下書きを残し、次の機会に同じ sha で送り直す", async () => {

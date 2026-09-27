@@ -38,17 +38,24 @@ async function drawMermaid(root: HTMLElement, seq: number): Promise<void> {
   }
 }
 
-// 表示中のエディタ。ページを離れるときに破棄する
+// 表示中のエディタと、そのページの path。ページを離れるときに破棄する
 let editor: Editor | null = null;
+let editingPath: string | null = null;
 
 export function isEditing(): boolean {
   return editor !== null;
 }
 
-// ページを離れる（別のルートを描く）ときに呼ぶ。エディタを破棄する。保存の起点は次のタスクでここに足す
+// エディタで開いているページの path。その下書きは片付けてはいけない
+export function currentEditingPath(): string | null {
+  return editingPath;
+}
+
+// ページを離れる（別のルートを描く）ときに呼ぶ。エディタを破棄する。保存は呼ぶ側（main.ts）が続けて行う
 export function leavePage(): void {
   editor?.destroy();
   editor = null;
+  editingPath = null;
 }
 
 // ページの表示。本文はマクロを展開してから HTML にする（ファイルは書いたまま）。
@@ -135,6 +142,7 @@ async function startEdit(kb: Kb, scripting: Scripting, page: Page, root: HTMLEle
     return;
   }
   editor = view;
+  editingPath = page.path;
   view.focus();
 }
 

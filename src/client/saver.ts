@@ -10,20 +10,31 @@ import type { Source, WriteOptions } from "./source";
 export const SAVE_DELAY = 30000;
 
 // front matter の updated をその日の日付にする。updated がなければ足す。front matter のないページには何もしない
-// （DECISIONS.md 2026-09-27「保存時の updated と、front matter のないページ」）
+// （DECISIONS.md 2026-09-27「保存時の updated と、front matter のないページ」）。
+// 行ごとに扱い、改行はもとのまま。updated が複数あれば最初のもの
 export function withUpdated(content: string, date: string): string {
-  const fm = splitFrontMatter(content);
-  if (fm.raw === null) return content;
-  const lines = fm.raw.split("\n");
-  const i = lines.findIndex((line) => /^updated:/.test(line));
-  if (i >= 0) {
-    if (lines[i].slice("updated:".length).trim().replace(/^["']|["']$/g, "") === date) return content;
-    lines[i] = `updated: ${date}`;
-  } else {
-    lines.push(`updated: ${date}`);
+  if (splitFrontMatter(content).raw === null) return content;
+  // [行, 改行, 行, 改行, ...] の並び
+  const parts = content.split(/(\r?\n)/);
+  const eol = parts[1] ?? "\n";
+  // parts[0] が先頭の ---。閉じの --- を探す（BOM は splitFrontMatter が許すので、ここでも外す）
+  let close = -1;
+  for (let i = 2; i < parts.length; i += 2) {
+    if (parts[i].trim() === "---") {
+      close = i;
+      break;
+    }
   }
-  const head = content.indexOf(fm.raw);
-  return `${content.slice(0, head)}${lines.join("\n")}${content.slice(head + fm.raw.length)}`;
+  if (close < 0) return content;
+  for (let i = 2; i < close; i += 2) {
+    if (!/^updated:/.test(parts[i])) continue;
+    const current = parts[i].slice("updated:".length).trim().replace(/^["']|["']$/g, "");
+    if (current === date) return content;
+    parts[i] = `updated: ${date}`;
+    return parts.join("");
+  }
+  parts.splice(close, 0, `updated: ${date}`, eol);
+  return parts.join("");
 }
 
 export interface SaveResult {
@@ -67,11 +78,12 @@ export class Saver {
     return Promise.all(dirtyDrafts().map(([path, draft]) => this.save(path, draft, options)));
   }
 
-  private save(path: string, draft: Draft, options: WriteOptions): Promise<SaveResult> {
-    const running = this.inFlight.get(path);
-    // 進行中なら、終わってからもう一度（そのあいだの編集を拾う）
-    if (running) return running.then(() => this.saveOnce(path, options));
-    const p = this.saveOnce(path, options).finally(() => this.inFlight.delete(path));
+  // 同じ path の保存は一つずつ連ねる。進行中なら終わってからもう一度（そのあいだの編集を拾う）
+  private save(path: string, _draft: Draft, options: WriteOptions): Promise<SaveResult> {
+    const running = this.inFlight.get(path) ?? Promise.resolve();
+    const p: Promise<SaveResult> = running.then(() => this.saveOnce(path, options)).finally(() => {
+      if (this.inFlight.get(path) === p) this.inFlight.delete(path);
+    });
     this.inFlight.set(path, p);
     return p;
   }
@@ -82,12 +94,18 @@ export class Saver {
     const edited = draft.content;
     const content = withUpdated(edited, this.today());
     const title = parsePage({ path, content }).title;
+    // keepalive の fetch は本文が 64KiB を超えると送れない。大きいページは普通の fetch で送る（閉じるときは届かないことがある）
+    const keepalive = (options.keepalive ?? false) && content.length < 60000;
     try {
-      const { sha } = await this.source.write(path, content, draft.base.sha, `web: ${title}`, options);
-      const file = { path, sha, content };
-      await this.kb.put(file);
-      // 送ったあとの編集は次の保存に回す。エディタの中身（updated の行だけ古い）を基準にして、送っていない差分だけが残るようにする
+      const { sha } = await this.source.write(path, content, draft.base.sha, `web: ${title}`, { keepalive });
+      // 書けた時点で基準を新しい sha にする（このあとの控えの更新が失敗しても、次の保存が古い sha で送られないように）。
+      // エディタの中身（updated の行だけ古い）を基準にして、送っていない差分だけが残るようにする
       rebase(path, { path, sha, content: edited });
+      try {
+        await this.kb.put({ path, sha, content });
+      } catch (e) {
+        console.warn(`保存はできたが控えに反映できない: ${e instanceof Error ? e.message : String(e)}`);
+      }
       this.lastError = null;
       const result = { path, ok: true };
       this.onResult(result);

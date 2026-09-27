@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { expect, test } from "@playwright/test";
+import { putFile } from "./helpers";
 
 const PATH = "notes/2026-01-12-book-a.md";
 const API = `/api/pages/${PATH}`;
@@ -7,7 +8,7 @@ const API = `/api/pages/${PATH}`;
 // ページを離れると保存されるので、書き換えるテストとして動かし、終わったら fixtures の内容に戻す
 test("編集で本文を書き換えると表示に反映される", async ({ page, request }) => {
   const original = await readFile(`fixtures/${PATH}`, "utf8");
-  const restore = () => request.put(API, { data: { content: original, sha: null, message: "test" } });
+  const restore = () => putFile(request, PATH, original);
   await restore();
 
   try {
@@ -39,13 +40,16 @@ test("編集で本文を書き換えると表示に反映される", async ({ pa
     await page.locator(".body a.wikilink").click();
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("見本の本C");
     await expect.poll(async () => ((await (await request.get(API)).json()) as { content: string }).content).toContain("# 書き換えた");
-    await page.goBack();
+    // 索引も新しくなっているので、開き直した見本の本Cのバックリンクに新しい title で出る（保存の直後の描画は間に合わないことがあるので開き直す）
+    await page.goto("/p/2026-01-15-book-c");
+    await expect(page.locator("section.backlinks li", { hasText: "書き換えた" })).toHaveCount(1);
+    await page.goto("/p/2026-01-12-book-a");
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("書き換えた");
-    await expect(page.locator("section.backlinks li", { hasText: "書き換えた" })).toHaveCount(0);
 
-    // もう一度編集すると、保存した内容（updated が今日）が入っている
+    // もう一度編集すると、保存した内容が入っている（front matter ごと消したので updated は足されない）
     await page.getByRole("button", { name: "編集" }).click();
     await expect(page.locator(".cm-content")).toContainText("# 書き換えた");
+    await expect(page.locator(".cm-content")).not.toContainText("updated:");
   } finally {
     await restore();
   }

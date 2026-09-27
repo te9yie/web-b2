@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { expect, test } from "@playwright/test";
+import { putFile } from "./helpers";
 
 const SETTINGS = "/api/pages/notes/2026-01-05-settings.md";
 
@@ -8,10 +9,7 @@ const SETTINGS = "/api/pages/notes/2026-01-05-settings.md";
 test("壊れたスクリプトを保存すると settings ページの先頭にエラーが出る", async ({ page, request }) => {
   const original = await readFile("fixtures/notes/2026-01-05-settings.md", "utf8");
   expect(original).toContain("```js script.js");
-  const restore = async () => {
-    const res = await request.put(SETTINGS, { data: { content: original, sha: null, message: "test" } });
-    expect(res.ok()).toBeTruthy();
-  };
+  const restore = () => putFile(request, "notes/2026-01-05-settings.md", original);
   await restore();
 
   try {

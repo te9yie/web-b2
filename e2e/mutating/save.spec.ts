@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { expect, test } from "@playwright/test";
+import { putFile } from "./helpers";
 
 const PATH = "notes/2026-01-12-book-a.md";
 const API = `/api/pages/${PATH}`;
@@ -11,7 +12,7 @@ function todayHere(): string {
 
 test("編集して別のページへ移ると保存され、ファイルが変わり updated がその日になる", async ({ page, request }) => {
   const original = await readFile(`fixtures/${PATH}`, "utf8");
-  const restore = () => request.put(API, { data: { content: original, sha: null, message: "test" } });
+  const restore = () => putFile(request, PATH, original);
   await restore();
 
   try {
@@ -48,7 +49,7 @@ test("編集して別のページへ移ると保存され、ファイルが変�
 
 test("タブを閉じる（pagehide）ときにも保存される", async ({ page, request }) => {
   const original = await readFile(`fixtures/${PATH}`, "utf8");
-  const restore = () => request.put(API, { data: { content: original, sha: null, message: "test" } });
+  const restore = () => putFile(request, PATH, original);
   await restore();
 
   try {

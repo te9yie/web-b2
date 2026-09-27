@@ -10,7 +10,7 @@ import { SAVE_DELAY, Saver } from "./saver";
 import { DEFAULT_SETTINGS, type Settings } from "./settings";
 import { ApiSource } from "./source";
 import { type FileStore, IdbStore, MemoryStore } from "./store";
-import { beginRender, escapeHtml, isEditing, leavePage, showAll, showPage, stale, statusText } from "./view";
+import { beginRender, currentEditingPath, escapeHtml, isEditing, leavePage, showAll, showPage, stale, statusText } from "./view";
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
 app.innerHTML = `<header id="top"><nav id="links"></nav><input id="q" type="search" placeholder="検索" autocomplete="off" aria-label="検索"><span id="save-note"></span></header><main id="view"><p id="status">読み込み中</p></main>`;
@@ -97,11 +97,11 @@ async function start(): Promise<void> {
     saveNote.textContent = result.ok ? "" : `保存できない: ${result.error}`;
     saveNote.title = result.ok ? "" : "下書きは残っている。次の編集かページ移動でもう一度送る";
   });
-  // タブを閉じる・裏に回るときに保存する。keepalive の fetch はページが消えても送り終える
-  const flushOnHide = () => void saver.flush({ keepalive: true });
-  window.addEventListener("pagehide", flushOnHide);
+  // タブを閉じるときに保存する。keepalive の fetch はページが消えても送り終える。
+  // 裏に回るとき（タブの切り替え）はページが消えないので普通の fetch で保存する（DECISIONS.md 2026-09-27「保存時の updated」）
+  window.addEventListener("pagehide", () => void saver.flush({ keepalive: true }));
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden") flushOnHide();
+    if (document.visibilityState === "hidden") void saver.flush();
   });
 
   let settings = await loadSettings();
@@ -129,9 +129,13 @@ async function start(): Promise<void> {
 
   const render = (route: Route) => {
     const seq = beginRender();
-    // 前のルートの編集を閉じ、変わっている下書きを保存する（ページ移動での保存）。保存できた下書きは消す
+    // 前のルートの編集を閉じ、基準と同じ下書きを片付け、変わっている下書きを保存する（ページ移動での保存）。
+    // 保存できた下書きも片付けるが、そのときエディタで開いているページのものは残す（開いたばかりの下書きを消すと入力が届かなくなる）
     leavePage();
-    void saver.flush().then(() => dropClean());
+    dropClean();
+    void saver.flush().then((results) => {
+      for (const r of results) if (r.ok && r.path !== currentEditingPath()) dropClean(r.path);
+    });
     // 検索欄の中身は URL に合わせる。/all 以外では空
     const query = route.kind === "all" ? route.q : "";
     if (document.activeElement !== q) q.value = query;
