@@ -42,6 +42,15 @@ test("見出しになる title に HTML があれば、title を直すまで保�
   expect(await page.evaluate(() => (window as { __pwned?: number }).__pwned)).toBeUndefined();
 });
 
+test("title を直す欄には、改行と続いた空白を1つの空白にまとめて入れる", async ({ page }) => {
+  // input type=text は改行を消すので、そのまま入れると「話続き」のように語が詰まる
+  await page.goto(`/new?title=${q("Vec<T> の話\n続き")}&body=x`);
+  await expect(page.locator("input.capture-title")).toHaveValue("Vec<T> の話 続き");
+
+  await page.goto(`/append?page=${q("  <b>\r\n\t太字  ")}&body=x`);
+  await expect(page.locator("input.capture-title")).toHaveValue("<b> 太字");
+});
+
 test("フォーカスを得た直後は「保存」を押せず、少し経つと押せる", async ({ page }) => {
   await page.goto(`/new?title=${q("まだないページ")}&body=x`);
   const save = page.locator("button.save");
